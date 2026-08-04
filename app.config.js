@@ -46,7 +46,7 @@ module.exports = {
       // expo-constants in src/lib/supabase.ts and src/lib/api.ts.
       supabaseUrl: process.env.SUPABASE_URL,
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
-      // Full deployed URL of your website (e.g. https://voiceid.vercel.app)
+      // Canonical production API origin. For VoiceID use https://www.voiceid.online
       // — the app calls its /api/media/* endpoints for upload/download,
       // same as the website does, since B2 credentials stay server-side.
       apiBaseUrl: process.env.API_BASE_URL

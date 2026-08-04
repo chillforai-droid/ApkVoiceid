@@ -2,12 +2,18 @@ import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 import { supabase } from './supabase';
 
-const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl as string | undefined;
+const configuredApiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl as string | undefined;
 
-if (!API_BASE_URL) {
-  console.warn(
-    'API_BASE_URL is not set — media upload/download will fail. Set it as a build-time env var / GitHub Secret.'
-  );
+// voiceid.online currently redirects API traffic while the www host serves the
+// media routes reliably. Keep ONE canonical origin in the APK; two URLs must
+// not be concatenated into API_BASE_URL. The fallback only protects builds
+// where the GitHub secret was accidentally omitted.
+const API_BASE_URL = (configuredApiBaseUrl || 'https://www.voiceid.online').replace(/\/+$/, '');
+
+if (!configuredApiBaseUrl) {
+  console.warn('API_BASE_URL is not set; using canonical https://www.voiceid.online');
+} else if (API_BASE_URL === 'https://voiceid.online') {
+  console.warn('Use https://www.voiceid.online as API_BASE_URL to avoid redirect-sensitive media uploads.');
 }
 
 /** Thrown when the user's session can't be used/refreshed and they need to log in again. */

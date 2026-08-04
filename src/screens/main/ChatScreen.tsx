@@ -14,12 +14,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Send, Image as ImageIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { uploadMedia, handleSessionExpired } from '../../lib/api';
 import { cacheLocalFile } from '../../lib/mediaCache';
+import { sha256File } from '../../lib/sha256';
 import { MessageBubble } from '../../components/MessageBubble';
 import { VoiceRecorderBar } from '../../components/VoiceRecorderBar';
 
@@ -34,6 +34,17 @@ export default function ChatScreen({ route, navigation }: any) {
   const [sending, setSending] = useState(false);
   const [isVoicePreview, setIsVoicePreview] = useState(false);
   const listRef = useRef<FlatList>(null);
+
+  // Realtime is still kept for messages from the other participant, but a
+  // successful local insert is also appended immediately. This avoids the
+  // sender depending on a postgres_changes echo to see their own media.
+  const appendMessage = useCallback((message: any) => {
+    if (!message?.id) return;
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === message.id)) return prev;
+      return [...prev, message];
+    });
+  }, []);
 
   useEffect(() => {
     if (!conversationId || !user) return;
@@ -55,10 +66,7 @@ export default function ChatScreen({ route, navigation }: any) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
         (payload) => {
-          setMessages((prev) => {
-            if (prev.find((m) => m.id === payload.new.id)) return prev;
-            return [...prev, payload.new];
-          });
+          appendMessage(payload.new);
         }
       )
       .on(
@@ -73,7 +81,7 @@ export default function ChatScreen({ route, navigation }: any) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, user]);
+  }, [conversationId, user, appendMessage]);
 
   const sendText = async () => {
     if (!text.trim() || !user || !conversationId) return;
@@ -109,8 +117,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
     setSending(true);
     try {
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-      const sha256 = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, base64);
+      const sha256 = await sha256File(asset.uri);
 
       const objectKey = await uploadMedia(asset.uri, mimeType);
 
@@ -131,7 +138,12 @@ export default function ChatScreen({ route, navigation }: any) {
         .single();
 
       if (error) throw error;
-      if (message) await cacheLocalFile(message.id, asset.uri, mimeType);
+      if (message) {
+        // Cache first so ImageMessageBubble can render the just-picked local
+        // file without immediately asking the server to download it again.
+        await cacheLocalFile(message.id, asset.uri, mimeType);
+        appendMessage(message);
+      }
     } catch (err: any) {
       console.error('sendImage error', err);
       const handled = await handleSessionExpired(err);
@@ -143,8 +155,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
   const sendVoice = async (localUri: string, durationSec: number, mimeType: string) => {
     if (!user || !conversationId) return;
-    const base64 = await FileSystem.readAsStringAsync(localUri, { encoding: FileSystem.EncodingType.Base64 });
-    const sha256 = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, base64);
+    const sha256 = await sha256File(localUri);
     const fileInfo = await FileSystem.getInfoAsync(localUri, { size: true });
 
     const objectKey = await uploadMedia(localUri, mimeType);
@@ -167,7 +178,12 @@ export default function ChatScreen({ route, navigation }: any) {
       .single();
 
     if (error) throw error;
-    if (message) await cacheLocalFile(message.id, localUri, mimeType);
+    if (message) {
+      // Same sender-side fix as images: make the DB-confirmed message visible
+      // immediately instead of waiting for a realtime INSERT echo.
+      await cacheLocalFile(message.id, localUri, mimeType);
+      appendMessage(message);
+    }
   };
 
   const renderItem = useCallback(
