@@ -32,7 +32,8 @@
     "expo-av": "~14.0.7",
     "expo-image-picker": "~15.0.7",
     "expo-file-system": "~17.0.1",
-    "expo-crypto": "~13.0.2"
+    "expo-crypto": "~13.0.2",
+    "react-native-webrtc": "^124.0.4"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

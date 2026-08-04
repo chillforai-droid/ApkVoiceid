@@ -34,7 +34,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Generate native Android project (expo prebuild)
         run: npx expo prebuild --platform android --non-interactive

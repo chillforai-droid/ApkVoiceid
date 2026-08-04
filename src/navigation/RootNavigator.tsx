@@ -3,7 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, MessageCircle, Settings as SettingsIcon } from 'lucide-react-native';
+import { Home, MessageCircle, Settings as SettingsIcon, Phone } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -14,6 +14,7 @@ import DashboardScreen from '../screens/main/DashboardScreen';
 import ConversationsScreen from '../screens/main/ConversationsScreen';
 import ChatScreen from '../screens/main/ChatScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
+import CallHistoryScreen from '../screens/main/CallHistoryScreen';
 
 const AuthStackNav = createNativeStackNavigator();
 const MainStackNav = createNativeStackNavigator();
@@ -48,6 +49,11 @@ function MainTabs() {
         name="Chats"
         component={ConversationsScreen}
         options={{ tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} /> }}
+      />
+      <Tab.Screen
+        name="Calls"
+        component={CallHistoryScreen}
+        options={{ tabBarIcon: ({ color, size }) => <Phone color={color} size={size} /> }}
       />
       <Tab.Screen
         name="Settings"

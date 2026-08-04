@@ -105,8 +105,8 @@ export default function ConversationsScreen({ navigation }: any) {
     setRefreshing(false);
   };
 
-  const openChat = (conversationId: string, name: string) => {
-    navigation.navigate('Chat', { conversationId, name });
+  const openChat = (conversationId: string, name: string, otherUserId?: string) => {
+    navigation.navigate('Chat', { conversationId, name, otherUserId });
   };
 
   const startChatWith = async (otherUserId: string, name: string) => {
@@ -118,7 +118,7 @@ export default function ConversationsScreen({ navigation }: any) {
       return;
     }
     setQuery('');
-    openChat(conversationId, name);
+    openChat(conversationId, name, otherUserId);
   };
 
   const renderConversation = ({ item }: any) => {
@@ -135,7 +135,7 @@ export default function ConversationsScreen({ navigation }: any) {
         : latest?.content_body || 'बातचीत शुरू करें';
 
     return (
-      <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item.id, other?.display_name)}>
+      <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item.id, other?.display_name, item.conversation_members?.find((m: any) => m.user_id !== user?.id)?.user_id)}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>
         </View>

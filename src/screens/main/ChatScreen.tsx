@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Send, Image as ImageIcon } from 'lucide-react-native';
+import { ArrowLeft, Send, Image as ImageIcon, Phone } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from '../../lib/supabase';
@@ -22,11 +22,13 @@ import { cacheLocalFile } from '../../lib/mediaCache';
 import { sha256File } from '../../lib/sha256';
 import { MessageBubble } from '../../components/MessageBubble';
 import { VoiceRecorderBar } from '../../components/VoiceRecorderBar';
+import { useVoiceCall } from '../../context/VoiceCallContext';
 
 // Ported from src/pages/ChatPage.tsx. Same messages table, same realtime
 // channel pattern, same /api/media/* upload flow — just React Native UI.
 export default function ChatScreen({ route, navigation }: any) {
-  const { conversationId, name } = route.params ?? {};
+  const { conversationId, name, otherUserId } = route.params ?? {};
+  const { initiateCall } = useVoiceCall();
   const { user } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,9 +202,10 @@ export default function ChatScreen({ route, navigation }: any) {
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{(name ?? '?').charAt(0).toUpperCase()}</Text>
         </View>
-        <Text style={styles.headerName} numberOfLines={1}>
-          {name ?? 'चैट'}
-        </Text>
+        <Text style={styles.headerName} numberOfLines={1}>{name ?? 'चैट'}</Text>
+        <TouchableOpacity onPress={() => otherUserId && initiateCall(otherUserId)} disabled={!otherUserId} style={styles.backBtn}>
+          <Phone size={22} color={otherUserId ? '#22C55E' : '#475569'} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (

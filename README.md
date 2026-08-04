@@ -71,3 +71,11 @@ npx expo start
 
 ## यह अभी पूरा ऐप क्यों नहीं है
 पूरे migration plan (`VoiceID-React-Native-Migration-Plan.md`) के मुताबिक, कॉल्स और पुश नोटिफिकेशन जैसी बची हुई भारी फ़ीचर्स को ठीक से बनाने में अभी थोड़ा और समय लगेगा। टेक्स्ट, वॉइस मैसेज, और इमेज — तीनों अब असली बैकएंड से काम कर रहे हैं।
+
+## Phase 4 — Native Voice Calling
+- WebRTC audio calling compatible with the existing website signaling protocol (`voice-call:{callId}`).
+- Incoming/outgoing call overlay, accept/reject/end, mute and 30-second missed-call timeout.
+- `calls` table remains the source of truth and call history is available from the Calls bottom tab.
+- Uses `react-native-webrtc`; GitHub Actions/Expo prebuild creates the native Android integration.
+- Current backend uses STUN only, matching the website. A TURN service is still recommended later for reliable calls across restrictive/symmetric NAT networks.
+- Background/killed-app incoming-call wake-up via FCM is intentionally not enabled in this ZIP because the Android Firebase `google-services.json` is not present in the mobile project. Foreground incoming calls work through Supabase Realtime.
