@@ -6,7 +6,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "prebuild": "expo prebuild --platform android --clean",
+    "prebuild": "expo prebuild --platform android --clean && node scripts/set-android-min-sdk.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

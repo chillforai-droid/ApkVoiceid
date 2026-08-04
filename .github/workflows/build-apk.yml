@@ -37,7 +37,7 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Generate native Android project (expo prebuild)
-        run: npx expo prebuild --platform android --non-interactive
+        run: npm run prebuild
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
