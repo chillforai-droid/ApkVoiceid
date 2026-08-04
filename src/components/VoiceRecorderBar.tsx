@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Alert } from 'react-native';
 import { Mic, Square, Play, X, Send } from 'lucide-react-native';
 import { Audio } from 'expo-av';
+import { handleSessionExpired } from '../lib/api';
 
 interface Props {
   onSend: (localUri: string, durationSec: number, mimeType: string) => Promise<void>;
@@ -77,7 +78,8 @@ export function VoiceRecorderBar({ onSend, onRecordingStateChange }: Props) {
       notifyState(false);
     } catch (err: any) {
       console.error('send voice error', err);
-      Alert.alert('गड़बड़ी', 'वॉइस मैसेज नहीं भेजा जा सका: ' + (err?.message ?? 'अनजान वजह'));
+      const handled = await handleSessionExpired(err);
+      if (!handled) Alert.alert('गड़बड़ी', 'वॉइस मैसेज नहीं भेजा जा सका: ' + (err?.message ?? 'अनजान वजह'));
     } finally {
       setSending(false);
     }

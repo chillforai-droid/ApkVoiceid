@@ -18,7 +18,7 @@ import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { uploadMedia } from '../../lib/api';
+import { uploadMedia, handleSessionExpired } from '../../lib/api';
 import { cacheLocalFile } from '../../lib/mediaCache';
 import { MessageBubble } from '../../components/MessageBubble';
 import { VoiceRecorderBar } from '../../components/VoiceRecorderBar';
@@ -134,7 +134,8 @@ export default function ChatScreen({ route, navigation }: any) {
       if (message) await cacheLocalFile(message.id, asset.uri, mimeType);
     } catch (err: any) {
       console.error('sendImage error', err);
-      Alert.alert('गड़बड़ी', 'इमेज नहीं भेजी जा सकी: ' + (err?.message ?? ''));
+      const handled = await handleSessionExpired(err);
+      if (!handled) Alert.alert('गड़बड़ी', 'इमेज नहीं भेजी जा सकी: ' + (err?.message ?? ''));
     } finally {
       setSending(false);
     }
