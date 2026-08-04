@@ -4,6 +4,8 @@ import { Play, Pause } from 'lucide-react-native';
 import { Audio } from 'expo-av';
 import { getCachedMedia, downloadToCache } from '../lib/mediaCache';
 import { getDownloadUrl, ackMedia } from '../lib/api';
+import { sha256File } from '../lib/sha256';
+import * as FileSystem from 'expo-file-system';
 
 export function VoiceMessageBubble({ message, isOwn }: { message: any; isOwn: boolean }) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -33,7 +35,10 @@ export function VoiceMessageBubble({ message, isOwn }: { message: any; isOwn: bo
         setIsLoading(true);
         const remoteUrl = await getDownloadUrl(message.id);
         uri = await downloadToCache(message.id, remoteUrl, message.mime_type || 'audio/webm');
-        // Best-effort cleanup ack, same as the web app (server rejects for sender's own message)
+        const info = await FileSystem.getInfoAsync(uri, { size: true });
+        if (message.byte_size && (info as any).size !== Number(message.byte_size)) throw new Error('Media size mismatch');
+        if (message.sha256 && await sha256File(uri) !== message.sha256) throw new Error('Media SHA-256 mismatch');
+        // ACK only after the receiver has a complete, verified local copy.
         ackMedia(message.id);
       }
 

@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import { supabase } from './supabase';
 
 const configuredApiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl as string | undefined;
@@ -67,23 +68,26 @@ async function authHeader(): Promise<{ Authorization: string }> {
  */
 export async function uploadMedia(fileUri: string, mimeType: string): Promise<string> {
   const headers = await authHeader();
-  const fileRes = await fetch(fileUri);
-  const blob = await fileRes.blob();
 
-  const uploadRes = await fetch(`${API_BASE_URL}/api/media/upload`, {
-    method: 'POST',
+  // IMPORTANT: do not convert a React-Native file:// URI to a JS Blob and then
+  // pass that Blob to fetch(). On some Android/RN builds that path can report a
+  // successful HTTP upload while the bytes arriving at the server are not the
+  // original file bytes. Expo FileSystem streams the actual file as binary.
+  const result = await FileSystem.uploadAsync(`${API_BASE_URL}/api/media/upload`, fileUri, {
+    httpMethod: 'POST',
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
     headers: { 'Content-Type': mimeType, ...headers },
-    body: blob,
   });
 
-  if (!uploadRes.ok) {
-    if (uploadRes.status === 401) throw new SessionExpiredError();
-    const body = await uploadRes.text().catch(() => '');
-    throw new Error(`Upload failed (${uploadRes.status})${body ? `: ${body}` : ''}`);
+  if (result.status < 200 || result.status >= 300) {
+    if (result.status === 401) throw new SessionExpiredError();
+    throw new Error(`Upload failed (${result.status})${result.body ? `: ${result.body}` : ''}`);
   }
-  const { objectKey } = await uploadRes.json();
-  if (!objectKey) throw new Error('Upload did not return an objectKey');
-  return objectKey;
+
+  let payload: any;
+  try { payload = JSON.parse(result.body || '{}'); } catch { payload = {}; }
+  if (!payload.objectKey) throw new Error('Upload did not return an objectKey');
+  return payload.objectKey;
 }
 
 /**

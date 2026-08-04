@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Image, ActivityIndicator, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { getCachedMedia, downloadToCache } from '../lib/mediaCache';
 import { getDownloadUrl, ackMedia } from '../lib/api';
+import { sha256File } from '../lib/sha256';
+import * as FileSystem from 'expo-file-system';
 
 export function ImageMessageBubble({ message }: { message: any }) {
   const [uri, setUri] = useState<string | null>(null);
@@ -18,6 +20,10 @@ export function ImageMessageBubble({ message }: { message: any }) {
           if (!message.b2_object_key) throw new Error('No image reference');
           const remoteUrl = await getDownloadUrl(message.id);
           cached = await downloadToCache(message.id, remoteUrl, message.mime_type || 'image/jpeg');
+          const info = await FileSystem.getInfoAsync(cached, { size: true });
+          if (message.byte_size && (info as any).size !== Number(message.byte_size)) throw new Error('Media size mismatch');
+          if (message.sha256 && await sha256File(cached) !== message.sha256) throw new Error('Media SHA-256 mismatch');
+          // ACK only after the receiver has a complete, verified local copy.
           ackMedia(message.id);
         }
         if (!cancelled) setUri(cached);

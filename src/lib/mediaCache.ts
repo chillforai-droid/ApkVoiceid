@@ -1,6 +1,8 @@
 import * as FileSystem from 'expo-file-system';
 
-const CACHE_DIR = `${FileSystem.cacheDirectory}voiceid-media/`;
+// Receiver media must survive normal OS cache cleanup because the B2 copy is
+// deleted only after the receiver has safely stored it locally.
+const CACHE_DIR = `${FileSystem.documentDirectory}voiceid-media/`;
 
 async function ensureDir() {
   const info = await FileSystem.getInfoAsync(CACHE_DIR);
@@ -33,7 +35,11 @@ export async function getCachedMedia(messageId: string, mime: string): Promise<s
 export async function downloadToCache(messageId: string, remoteUrl: string, mime: string): Promise<string> {
   await ensureDir();
   const uri = pathFor(messageId, extFromMime(mime));
-  await FileSystem.downloadAsync(remoteUrl, uri);
+  const result = await FileSystem.downloadAsync(remoteUrl, uri);
+  if (result.status < 200 || result.status >= 300) {
+    await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+    throw new Error(`Media download failed (${result.status})`);
+  }
   return uri;
 }
 
