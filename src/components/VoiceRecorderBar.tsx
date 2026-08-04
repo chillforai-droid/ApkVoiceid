@@ -75,9 +75,9 @@ export function VoiceRecorderBar({ onSend, onRecordingStateChange }: Props) {
       setRecordedUri(null);
       setDuration(0);
       notifyState(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error('send voice error', err);
-      Alert.alert('गड़बड़ी', 'वॉइस मैसेज भेजने में दिक्कत हुई');
+      Alert.alert('गड़बड़ी', 'वॉइस मैसेज नहीं भेजा जा सका: ' + (err?.message ?? 'अनजान वजह'));
     } finally {
       setSending(false);
     }

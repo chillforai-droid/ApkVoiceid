@@ -10,8 +10,20 @@ if (!API_BASE_URL) {
 }
 
 async function authHeader() {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
+  let session = (await supabase.auth.getSession()).data.session;
+
+  // Extra safety net on top of the AppState-driven auto-refresh in
+  // supabase.ts: if the token is already expired (or expires within 30s),
+  // force a refresh before using it, so a slow/late refresh cycle can't
+  // still produce a 401 on the request that follows.
+  const expiresAt = session?.expires_at ?? 0;
+  const isExpiringSoon = expiresAt * 1000 < Date.now() + 30_000;
+  if (session && isExpiringSoon) {
+    const { data } = await supabase.auth.refreshSession();
+    session = data.session ?? session;
+  }
+
+  const token = session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -32,7 +44,8 @@ export async function uploadMedia(fileUri: string, mimeType: string): Promise<st
   });
 
   if (!uploadRes.ok) {
-    throw new Error(`Upload failed (${uploadRes.status})`);
+    const body = await uploadRes.text().catch(() => '');
+    throw new Error(`Upload failed (${uploadRes.status})${body ? `: ${body}` : ''}`);
   }
   const { objectKey } = await uploadRes.json();
   if (!objectKey) throw new Error('Upload did not return an objectKey');

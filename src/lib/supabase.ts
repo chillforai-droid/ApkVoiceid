@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { createClient } from '@supabase/supabase-js';
@@ -22,4 +23,17 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+});
+
+// CRITICAL for React Native: unlike a browser tab, JS timers pause while the
+// app is backgrounded, so Supabase's autoRefreshToken loop silently stops.
+// Without this, the access token can expire while the app is in the
+// background and every authenticated request (upload, download-auth, etc.)
+// comes back 401 until the user manually logs out/in again.
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') {
+    supabase.auth.startAutoRefresh();
+  } else {
+    supabase.auth.stopAutoRefresh();
+  }
 });
