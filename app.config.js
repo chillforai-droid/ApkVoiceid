@@ -22,15 +22,34 @@ module.exports = {
         "RECORD_AUDIO",
         "CAMERA",
         "INTERNET",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "READ_MEDIA_IMAGES"
       ]
     },
+    plugins: [
+      [
+        "expo-av",
+        {
+          microphonePermission: "VoiceID को वॉइस मैसेज रिकॉर्ड करने के लिए माइक्रोफ़ोन एक्सेस चाहिए।"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "VoiceID को फ़ोटो भेजने के लिए आपकी गैलरी एक्सेस चाहिए।"
+        }
+      ]
+    ],
     extra: {
       // Injected at build time from environment variables (see .env.example
       // and .github/workflows/build-apk.yml). Read at runtime via
-      // expo-constants in src/lib/supabase.ts.
+      // expo-constants in src/lib/supabase.ts and src/lib/api.ts.
       supabaseUrl: process.env.SUPABASE_URL,
-      supabaseAnonKey: process.env.SUPABASE_ANON_KEY
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+      // Full deployed URL of your website (e.g. https://voiceid.vercel.app)
+      // — the app calls its /api/media/* endpoints for upload/download,
+      // same as the website does, since B2 credentials stay server-side.
+      apiBaseUrl: process.env.API_BASE_URL
     }
   }
 };

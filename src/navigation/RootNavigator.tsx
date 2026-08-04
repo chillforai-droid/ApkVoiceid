@@ -3,6 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Home, MessageCircle, Settings as SettingsIcon } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -38,9 +39,21 @@ function MainTabs() {
         tabBarInactiveTintColor: '#64748B',
       }}
     >
-      <Tab.Screen name="Home" component={DashboardScreen} />
-      <Tab.Screen name="Chats" component={ConversationsScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen
+        name="Home"
+        component={DashboardScreen}
+        options={{ tabBarIcon: ({ color, size }) => <Home color={color} size={size} /> }}
+      />
+      <Tab.Screen
+        name="Chats"
+        component={ConversationsScreen}
+        options={{ tabBarIcon: ({ color, size }) => <MessageCircle color={color} size={size} /> }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{ tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} /> }}
+      />
     </Tab.Navigator>
   );
 }

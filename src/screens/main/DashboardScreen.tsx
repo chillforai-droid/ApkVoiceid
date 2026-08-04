@@ -9,7 +9,7 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.greeting}>नमस्ते, {profile?.full_name ?? 'दोस्त'} 👋</Text>
+        <Text style={styles.greeting}>नमस्ते, {profile?.display_name ?? 'दोस्त'} 👋</Text>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>आपका VoiceID अकाउंट तैयार है</Text>
           <Text style={styles.cardText}>

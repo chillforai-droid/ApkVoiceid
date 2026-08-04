@@ -14,10 +14,10 @@ export default function SettingsScreen() {
 
       <View style={styles.profileCard}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(profile?.full_name ?? '?').charAt(0).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{(profile?.display_name ?? '?').charAt(0).toUpperCase()}</Text>
         </View>
         <View>
-          <Text style={styles.name}>{profile?.full_name ?? 'यूज़र'}</Text>
+          <Text style={styles.name}>{profile?.display_name ?? 'यूज़र'}</Text>
           <Text style={styles.email}>{user?.email}</Text>
         </View>
       </View>

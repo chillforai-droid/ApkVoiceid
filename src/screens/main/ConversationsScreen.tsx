@@ -1,26 +1,103 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  TextInput,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Search, X } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 
-// TODO(Phase 3): replace with the real conversations query/RPC ported from
-// ConversationsPage.tsx once the chat schema is wired up. For now this
-// fetches profiles as placeholder rows so the list + navigation is testable.
+// Ported from src/pages/ConversationsPage.tsx (list + realtime) and the
+// handleMessageAction flow in src/pages/UserProfilePage.tsx (starting a new
+// chat via the create_private_conversation RPC), combined into one screen.
 export default function ConversationsScreen({ navigation }: any) {
   const { user } = useAuth();
   const [conversations, setConversations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const refetchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('profiles').select('*').neq('id', user.id).limit(30);
+    const { data: memberships } = await supabase
+      .from('conversation_members')
+      .select('conversation_id')
+      .eq('user_id', user.id);
+
+    const convIds = (memberships ?? []).map((m) => m.conversation_id);
+    if (convIds.length === 0) {
+      setConversations([]);
+      setLoading(false);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('conversations')
+      .select(
+        `id, last_message_at,
+         conversation_members(user_id, profiles(display_name, avatar_url)),
+         messages(content_body, content_type, created_at)`
+      )
+      .in('id', convIds)
+      .order('last_message_at', { ascending: false });
+
     setConversations(data ?? []);
+    setLoading(false);
   }, [user]);
 
   useEffect(() => {
     load();
+
+    const scheduleRefetch = () => {
+      if (refetchTimeout.current) clearTimeout(refetchTimeout.current);
+      refetchTimeout.current = setTimeout(load, 150);
+    };
+
+    const convChannel = supabase
+      .channel('conversations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, scheduleRefetch)
+      .subscribe();
+    const msgChannel = supabase
+      .channel('messages-list')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleRefetch)
+      .subscribe();
+
+    return () => {
+      if (refetchTimeout.current) clearTimeout(refetchTimeout.current);
+      supabase.removeChannel(convChannel);
+      supabase.removeChannel(msgChannel);
+    };
   }, [load]);
+
+  // Debounced user search for starting a new chat
+  useEffect(() => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+        .neq('id', user?.id)
+        .limit(10);
+      setSearchResults(data ?? []);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, user?.id]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -28,46 +105,131 @@ export default function ConversationsScreen({ navigation }: any) {
     setRefreshing(false);
   };
 
+  const openChat = (conversationId: string, name: string) => {
+    navigation.navigate('Chat', { conversationId, name });
+  };
+
+  const startChatWith = async (otherUserId: string, name: string) => {
+    const { data: conversationId, error } = await supabase.rpc('create_private_conversation', {
+      other_user_id: otherUserId,
+    });
+    if (error || !conversationId) {
+      console.error('create_private_conversation failed', error);
+      return;
+    }
+    setQuery('');
+    openChat(conversationId, name);
+  };
+
+  const renderConversation = ({ item }: any) => {
+    const other = item.conversation_members?.find((m: any) => m.user_id !== user?.id)?.profiles;
+    const sorted = [...(item.messages ?? [])].sort(
+      (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const latest = sorted[0];
+    const preview =
+      latest?.content_type === 'voice'
+        ? '🎤 वॉइस मैसेज'
+        : latest?.content_type === 'image'
+        ? '📷 इमेज'
+        : latest?.content_body || 'बातचीत शुरू करें';
+
+    return (
+      <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item.id, other?.display_name)}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>
+        </View>
+        <View style={styles.rowContent}>
+          <Text style={styles.name}>{other?.display_name ?? 'यूज़र'}</Text>
+          <Text style={styles.preview} numberOfLines={1}>
+            {preview}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>चैट्स</Text>
       </View>
-      <FlatList
-        data={conversations}
-        keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.row}
-            activeOpacity={0.6}
-            onPress={() => navigation.navigate('Chat', { userId: item.id, name: item.full_name })}
-          >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{(item.full_name ?? '?').charAt(0).toUpperCase()}</Text>
-            </View>
-            <View style={styles.rowContent}>
-              <Text style={styles.name}>{item.full_name ?? 'यूज़र'}</Text>
-              <Text style={styles.preview} numberOfLines={1}>
-                टैप करके बातचीत शुरू करें
-              </Text>
-            </View>
+
+      <View style={styles.searchBar}>
+        <Search size={18} color="#64748B" />
+        <TextInput
+          style={styles.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="नाम या यूज़रनेम से खोजें..."
+          placeholderTextColor="#64748B"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity onPress={() => setQuery('')}>
+            <X size={18} color="#64748B" />
           </TouchableOpacity>
         )}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>कोई बातचीत नहीं मिली</Text>
-          </View>
-        }
-      />
+      </View>
+
+      {query.trim() ? (
+        searching ? (
+          <ActivityIndicator style={{ marginTop: 30 }} color="#22C55E" />
+        ) : (
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => startChatWith(item.id, item.display_name)}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={styles.rowContent}>
+                  <Text style={styles.name}>{item.display_name}</Text>
+                  <Text style={styles.preview}>@{item.username}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>कोई यूज़र नहीं मिला</Text>
+              </View>
+            }
+          />
+        )
+      ) : loading ? (
+        <ActivityIndicator style={{ marginTop: 30 }} color="#22C55E" />
+      ) : (
+        <FlatList
+          data={conversations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderConversation}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>अभी कोई बातचीत नहीं — ऊपर सर्च करके शुरू करें</Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B1220' },
-  header: { paddingHorizontal: 20, paddingVertical: 14 },
+  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4 },
   headerTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    marginHorizontal: 16,
+    marginVertical: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  searchInput: { flex: 1, color: '#F1F5F9', paddingVertical: 10, fontSize: 14 },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12 },
   avatar: {
     width: 50,
@@ -82,6 +244,6 @@ const styles = StyleSheet.create({
   rowContent: { flex: 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#1E293B', paddingBottom: 12 },
   name: { fontSize: 16, fontWeight: '600', color: '#fff' },
   preview: { fontSize: 13, color: '#94A3B8', marginTop: 3 },
-  empty: { alignItems: 'center', marginTop: 80 },
-  emptyText: { color: '#64748B', fontSize: 14 },
+  empty: { alignItems: 'center', marginTop: 80, paddingHorizontal: 30 },
+  emptyText: { color: '#64748B', fontSize: 14, textAlign: 'center' },
 });
