@@ -17,6 +17,7 @@ import SettingsScreen from '../screens/main/SettingsScreen';
 import CallHistoryScreen from '../screens/main/CallHistoryScreen';
 import NotificationsScreen from '../screens/main/NotificationsScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
+import SearchUsersScreen from '../screens/main/SearchUsersScreen';
 import { useNotifications } from '../context/NotificationContext';
 
 const AuthStackNav = createNativeStackNavigator();
@@ -81,6 +82,7 @@ function MainStack() {
       <MainStackNav.Screen name="Tabs" component={MainTabs} />
       <MainStackNav.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
       <MainStackNav.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
+      <MainStackNav.Screen name="SearchUsers" component={SearchUsersScreen} options={{ headerShown: false }} />
     </MainStackNav.Navigator>
   );
 }
