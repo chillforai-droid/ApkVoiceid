@@ -7,10 +7,11 @@ import { VoiceCallProvider } from './src/context/VoiceCallContext';
 import CallOverlay from './src/components/CallOverlay';
 import { NotificationProvider } from './src/context/NotificationContext';
 import { PresenceProvider } from './src/context/PresenceContext';
+import { ThemeProvider } from './src/context/ThemeContext';
 
 export default function App() {
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider><ThemeProvider>
       <AuthProvider>
         <NotificationProvider>
           <PresenceProvider>
@@ -22,6 +23,6 @@ export default function App() {
           </PresenceProvider>
           </NotificationProvider>
       </AuthProvider>
-    </SafeAreaProvider>
+    </ThemeProvider></SafeAreaProvider>
   );
 }

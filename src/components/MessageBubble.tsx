@@ -1,11 +1,11 @@
 import React, { memo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { VoiceMessageBubble } from './VoiceMessageBubble';
 import { ImageMessageBubble } from './ImageMessageBubble';
 
-function MessageBubbleImpl({ message, isOwn }: { message: any; isOwn: boolean }) {
+function MessageBubbleImpl({ message, isOwn, onLongPress }: { message: any; isOwn: boolean; onLongPress?:()=>void }) {
   return (
-    <View style={[styles.row, { justifyContent: isOwn ? 'flex-end' : 'flex-start' }]}>
+    <TouchableOpacity activeOpacity={0.9} onLongPress={onLongPress} style={[styles.row, { justifyContent: isOwn ? 'flex-end' : 'flex-start' }]}>
       <View
         style={[
           styles.bubble,
@@ -24,7 +24,7 @@ function MessageBubbleImpl({ message, isOwn }: { message: any; isOwn: boolean })
           {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

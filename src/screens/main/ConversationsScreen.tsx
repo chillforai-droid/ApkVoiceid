@@ -8,17 +8,20 @@ import {
   RefreshControl,
   TextInput,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Search, X } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { usePresence } from '../../context/PresenceContext';
 
 // Ported from src/pages/ConversationsPage.tsx (list + realtime) and the
 // handleMessageAction flow in src/pages/UserProfilePage.tsx (starting a new
 // chat via the create_private_conversation RPC), combined into one screen.
 export default function ConversationsScreen({ navigation }: any) {
   const { user } = useAuth();
+  const { isOnline } = usePresence();
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,9 +139,7 @@ export default function ConversationsScreen({ navigation }: any) {
 
     return (
       <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item.id, other?.display_name, item.conversation_members?.find((m: any) => m.user_id !== user?.id)?.user_id)}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>
-        </View>
+        <View style={styles.avatar}>{other?.avatar_url ? <Image source={{uri:other.avatar_url}} style={styles.avatarImage}/> : <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{backgroundColor:isOnline(item.conversation_members?.find((m:any)=>m.user_id!==user?.id)?.user_id)?'#22C55E':'#64748B'}]}/></View>
         <View style={styles.rowContent}>
           <Text style={styles.name}>{other?.display_name ?? 'यूज़र'}</Text>
           <Text style={styles.preview} numberOfLines={1}>
@@ -180,9 +181,7 @@ export default function ConversationsScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => navigation.navigate('UserProfile', { profileId: item.id })}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>
-                </View>
+                <View style={styles.avatar}>{item.avatar_url?<Image source={{uri:item.avatar_url}} style={styles.avatarImage}/>:<Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{backgroundColor:isOnline(item.id)?'#22C55E':'#64748B'}]}/></View>
                 <View style={styles.rowContent}>
                   <Text style={styles.name}>{item.display_name}</Text>
                   <Text style={styles.preview}>@{item.username}</Text>
@@ -240,6 +239,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 14,
   },
+  avatarImage:{width:'100%',height:'100%',borderRadius:25},
+  dot:{position:'absolute',right:0,bottom:1,width:12,height:12,borderRadius:6,borderWidth:2,borderColor:'#0B1220'},
   avatarText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   rowContent: { flex: 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#1E293B', paddingBottom: 12 },
   name: { fontSize: 16, fontWeight: '600', color: '#fff' },

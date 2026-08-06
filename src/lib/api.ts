@@ -66,18 +66,19 @@ async function authHeader(): Promise<{ Authorization: string }> {
  * server-side proxy, mirroring handleImageUpload / sendAudio in the web app.
  * Returns the objectKey to store on the message row.
  */
-export async function uploadMedia(fileUri: string, mimeType: string): Promise<string> {
+export async function uploadMedia(fileUri: string, mimeType: string, onProgress?: (progress:number)=>void): Promise<string> {
   const headers = await authHeader();
 
   // IMPORTANT: do not convert a React-Native file:// URI to a JS Blob and then
   // pass that Blob to fetch(). On some Android/RN builds that path can report a
   // successful HTTP upload while the bytes arriving at the server are not the
   // original file bytes. Expo FileSystem streams the actual file as binary.
-  const result = await FileSystem.uploadAsync(`${API_BASE_URL}/api/media/upload`, fileUri, {
-    httpMethod: 'POST',
-    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  const task = FileSystem.createUploadTask(`${API_BASE_URL}/api/media/upload`, fileUri, {
+    httpMethod: 'POST', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
     headers: { 'Content-Type': mimeType, ...headers },
-  });
+  }, p => { if (p.totalBytesExpectedToSend > 0) onProgress?.(p.totalBytesSent / p.totalBytesExpectedToSend); });
+  const result = await task.uploadAsync();
+  if (!result) throw new Error('Upload cancelled');
 
   if (result.status < 200 || result.status >= 300) {
     if (result.status === 401) throw new SessionExpiredError();

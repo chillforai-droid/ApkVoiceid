@@ -10,30 +10,35 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Send, Image as ImageIcon, Phone } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
-import { uploadMedia, handleSessionExpired } from '../../lib/api';
+import { uploadMedia, handleSessionExpired, getDownloadUrl, deleteMedia } from '../../lib/api';
 import { cacheLocalFile } from '../../lib/mediaCache';
 import { sha256File } from '../../lib/sha256';
 import { MessageBubble } from '../../components/MessageBubble';
 import { VoiceRecorderBar } from '../../components/VoiceRecorderBar';
 import { useVoiceCall } from '../../context/VoiceCallContext';
+import { usePresence } from '../../context/PresenceContext';
 
 // Ported from src/pages/ChatPage.tsx. Same messages table, same realtime
 // channel pattern, same /api/media/* upload flow — just React Native UI.
 export default function ChatScreen({ route, navigation }: any) {
   const { conversationId, name, otherUserId } = route.params ?? {};
   const { initiateCall } = useVoiceCall();
+  const { isOnline } = usePresence();
   const { user } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [uploadProgress,setUploadProgress]=useState(0); const [typing,setTyping]=useState(false); const [otherProfile,setOtherProfile]=useState<any>(null); const typingTimer=useRef<any>(null); const typingChannel=useRef<any>(null);
   const [isVoicePreview, setIsVoicePreview] = useState(false);
   const listRef = useRef<FlatList>(null);
 
@@ -85,6 +90,9 @@ export default function ChatScreen({ route, navigation }: any) {
     };
   }, [conversationId, user, appendMessage]);
 
+  useEffect(()=>{if(!conversationId||!user)return; (async()=>{if(otherUserId){const{data}=await supabase.from('profiles').select('display_name,avatar_url').eq('id',otherUserId).maybeSingle();setOtherProfile(data)}})(); const ch=supabase.channel(`typing:${conversationId}`);typingChannel.current=ch;ch.on('broadcast',{event:'typing'},({payload}:any)=>{if(payload?.user_id!==user.id){setTyping(!!payload.typing);if(typingTimer.current)clearTimeout(typingTimer.current);typingTimer.current=setTimeout(()=>setTyping(false),1800)}}).subscribe();return()=>{if(typingTimer.current)clearTimeout(typingTimer.current);supabase.removeChannel(ch)}},[conversationId,user,otherUserId]);
+  const onTextChange=(v:string)=>{setText(v);typingChannel.current?.send({type:'broadcast',event:'typing',payload:{user_id:user?.id,typing:!!v}})};
+
   const sendText = async () => {
     if (!text.trim() || !user || !conversationId) return;
     const body = text.trim();
@@ -121,7 +129,7 @@ export default function ChatScreen({ route, navigation }: any) {
     try {
       const sha256 = await sha256File(asset.uri);
 
-      const objectKey = await uploadMedia(asset.uri, mimeType);
+      setUploadProgress(0); const objectKey = await uploadMedia(asset.uri, mimeType, setUploadProgress);
 
       const { data: message, error } = await supabase
         .from('messages')
@@ -151,7 +159,7 @@ export default function ChatScreen({ route, navigation }: any) {
       const handled = await handleSessionExpired(err);
       if (!handled) Alert.alert('गड़बड़ी', 'इमेज नहीं भेजी जा सकी: ' + (err?.message ?? ''));
     } finally {
-      setSending(false);
+      setSending(false); setUploadProgress(0);
     }
   };
 
@@ -188,10 +196,8 @@ export default function ChatScreen({ route, navigation }: any) {
     }
   };
 
-  const renderItem = useCallback(
-    ({ item }: any) => <MessageBubble message={item} isOwn={item.sender_id === user?.id} />,
-    [user?.id]
-  );
+  const messageActions=useCallback((m:any)=>{const own=m.sender_id===user?.id;const buttons:any[]=[];if(m.content_type==='text'&&own)buttons.push({text:'Edit',onPress:()=>Alert.prompt?.('Edit message','',async(v)=>{if(v?.trim())await supabase.from('messages').update({content_body:v.trim()}).eq('id',m.id)})});if(m.content_type!=='text')buttons.push({text:'Download / Share',onPress:async()=>{try{let uri=await (await import('../../lib/mediaCache')).getCachedMedia(m.id,m.mime_type||'application/octet-stream');if(!uri){const url=await getDownloadUrl(m.id);uri=await (await import('../../lib/mediaCache')).downloadToCache(m.id,url,m.mime_type||'application/octet-stream')}if(await Sharing.isAvailableAsync())await Sharing.shareAsync(uri!)}catch(e:any){Alert.alert('Download failed',e?.message||'')}}});if(own)buttons.push({text:'Delete',style:'destructive',onPress:async()=>{if(m.b2_object_key)deleteMedia(m.b2_object_key).catch(()=>{});await supabase.from('messages').delete().eq('id',m.id)}});buttons.push({text:'Cancel',style:'cancel'});Alert.alert('Message options','Choose action',buttons)},[user?.id]);
+  const renderItem = useCallback(({ item }: any) => <MessageBubble message={item} isOwn={item.sender_id === user?.id} onLongPress={()=>messageActions(item)} />,[user?.id,messageActions]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -199,10 +205,8 @@ export default function ChatScreen({ route, navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={22} color="#F1F5F9" />
         </TouchableOpacity>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(name ?? '?').charAt(0).toUpperCase()}</Text>
-        </View>
-        <Text style={styles.headerName} numberOfLines={1}>{name ?? 'चैट'}</Text>
+        <View style={styles.avatar}>{otherProfile?.avatar_url?<Image source={{uri:otherProfile.avatar_url}} style={{width:'100%',height:'100%',borderRadius:18}}/>:<Text style={styles.avatarText}>{(name ?? '?').charAt(0).toUpperCase()}</Text>}</View>
+        <View style={{flex:1}}><Text style={styles.headerName} numberOfLines={1}>{name ?? 'चैट'}</Text><Text style={{color:typing?'#22C55E':isOnline(otherUserId)?'#22C55E':'#64748B',fontSize:11}}>{typing?'typing…':isOnline(otherUserId)?'Online':'Offline'}</Text></View>
         <TouchableOpacity onPress={() => otherUserId && initiateCall(otherUserId)} disabled={!otherUserId} style={styles.backBtn}>
           <Phone size={22} color={otherUserId ? '#22C55E' : '#475569'} />
         </TouchableOpacity>
@@ -223,6 +227,7 @@ export default function ChatScreen({ route, navigation }: any) {
         />
       )}
 
+      {sending&&<View style={{paddingHorizontal:16,paddingVertical:6}}><Text style={{color:'#94A3B8',fontSize:12}}>Uploading… {Math.round(uploadProgress*100)}%</Text><View style={{height:4,backgroundColor:'#1E293B',borderRadius:2,marginTop:4}}><View style={{height:4,width:`${Math.max(3,uploadProgress*100)}%`,backgroundColor:'#22C55E',borderRadius:2}}/></View></View>}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.inputBar}>
           <VoiceRecorderBar onSend={sendVoice} onRecordingStateChange={setIsVoicePreview} />
@@ -234,7 +239,7 @@ export default function ChatScreen({ route, navigation }: any) {
               <TextInput
                 style={styles.textInput}
                 value={text}
-                onChangeText={setText}
+                onChangeText={onTextChange}
                 placeholder="मैसेज लिखें..."
                 placeholderTextColor="#64748B"
                 multiline

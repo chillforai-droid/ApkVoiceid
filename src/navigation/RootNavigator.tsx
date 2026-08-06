@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Home, MessageCircle, Settings as SettingsIcon, Phone, Bell } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import {useThemeMode} from '../context/ThemeContext';
 
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
@@ -89,6 +90,7 @@ function MainStack() {
 
 export default function RootNavigator() {
   const { session, loading } = useAuth();
+  const {scheme}=useThemeMode();
 
   if (loading) {
     return (
@@ -99,7 +101,7 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={DarkTheme}>
+    <NavigationContainer theme={scheme==='dark'?DarkTheme:DefaultTheme}>
       {session ? <MainStack /> : <AuthStack />}
     </NavigationContainer>
   );
