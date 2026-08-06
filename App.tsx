@@ -6,17 +6,20 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { VoiceCallProvider } from './src/context/VoiceCallContext';
 import CallOverlay from './src/components/CallOverlay';
 import { NotificationProvider } from './src/context/NotificationContext';
+import { PresenceProvider } from './src/context/PresenceContext';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <NotificationProvider>
+          <PresenceProvider>
           <VoiceCallProvider>
           <StatusBar style="light" />
           <RootNavigator />
           <CallOverlay />
         </VoiceCallProvider>
+          </PresenceProvider>
           </NotificationProvider>
       </AuthProvider>
     </SafeAreaProvider>

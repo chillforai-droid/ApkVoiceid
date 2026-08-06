@@ -4,6 +4,8 @@ import { mediaDevices, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { usePresence } from './PresenceContext';
+import Constants from 'expo-constants';
 
 type CallState = 'idle' | 'ringing-outgoing' | 'ringing-incoming' | 'connecting' | 'connected';
 type CallContextValue = {
@@ -13,10 +15,14 @@ type CallContextValue = {
   isMuted: boolean; toggleMute: () => void;
 };
 const VoiceCallContext = createContext<CallContextValue>({} as CallContextValue);
-const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const turnUrl=Constants.expoConfig?.extra?.turnUrl as string|undefined;
+const turnUsername=Constants.expoConfig?.extra?.turnUsername as string|undefined;
+const turnCredential=Constants.expoConfig?.extra?.turnCredential as string|undefined;
+const ICE_SERVERS:any={iceServers:[{urls:'stun:stun.l.google.com:19302'},...(turnUrl?[{urls:turnUrl,username:turnUsername,credential:turnCredential}]:[])]};
 
 export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { isOnline } = usePresence();
   const [callState, setCallState] = useState<CallState>('idle');
   const stateRef = useRef<CallState>('idle');
   const [activeCall, setActiveCall] = useState<any>(null);
@@ -81,6 +87,8 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     peer.onicecandidate = (e: any) => {
       if (e.candidate) signal.current?.send({ type: 'broadcast', event: 'ice-candidate', payload: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate });
     };
+    peer.ontrack = () => { /* react-native-webrtc routes the remote audio track natively */ };
+    peer.oniceconnectionstatechange = () => { if(peer.iceConnectionState==='failed') setCallState('connecting'); };
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === 'connected') setCallState('connected');
       if (['failed','closed'].includes(peer.connectionState)) cleanup();
@@ -106,6 +114,13 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       .or(`and(requester_id.eq.${user.id},responder_id.eq.${receiverId}),and(requester_id.eq.${receiverId},responder_id.eq.${user.id})`)
       .eq('status','accepted').maybeSingle();
     if (!contact) { Alert.alert('कॉल नहीं हो सकती', 'Voice call के लिए दोनों users का contact होना जरूरी है।'); return; }
+    if (!isOnline(receiverId)) {
+      // Persist a missed attempt. The existing calls INSERT webhook can send the
+      // push notification to devices that have registered an FCM token.
+      const { error: missedError } = await supabase.from('calls').insert({ caller_id:user.id, receiver_id:receiverId, status:'missed', ended_at:new Date().toISOString() });
+      Alert.alert('यूज़र ऑफलाइन है', missedError ? 'यूज़र अभी ऑनलाइन नहीं है।' : 'कॉल नहीं लगाई गई। Missed call दर्ज कर दी गई है।');
+      return;
+    }
     const { data: call, error } = await supabase.from('calls').insert({ caller_id:user.id, receiver_id:receiverId, status:'ringing' }).select().single();
     if (error || !call) { Alert.alert('कॉल शुरू नहीं हुई', error?.message ?? 'Unknown error'); return; }
     setActiveCall(call); loadOther(call); setCallState('ringing-outgoing'); watchCall(call.id);
@@ -130,7 +145,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('calls').update({status:'missed',ended_at:new Date().toISOString()}).eq('id',call.id); cleanup();
       }
     },30000);
-  }, [user, cleanup, loadOther, setupPeer, watchCall]);
+  }, [user, cleanup, loadOther, setupPeer, watchCall, isOnline]);
 
   const acceptCall = useCallback(async () => {
     if (!activeCall || stateRef.current !== 'ringing-incoming') return;

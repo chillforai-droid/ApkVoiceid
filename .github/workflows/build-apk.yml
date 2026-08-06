@@ -13,6 +13,10 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       API_BASE_URL: ${{ secrets.API_BASE_URL }}
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      TURN_URL: ${{ secrets.TURN_URL }}
+      TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+      TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
 
     steps:
       - name: Checkout code

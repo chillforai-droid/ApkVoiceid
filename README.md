@@ -87,3 +87,20 @@ npx expo start
 - Friend request notifications have inline Accept/Decline actions.
 - Message, friend request/accepted and missed-call notifications are clickable and route to the matching screen.
 - No client-side notification INSERT was added; existing SECURITY DEFINER backend triggers remain authoritative.
+
+## Feature-complete candidate (Phase 4–6)
+- Existing Phase 3 text/image/voice media flow preserved.
+- Friends: search, request, accept/decline, remove, block/unblock.
+- Clickable in-app notifications and unread badge.
+- Profile/settings parity: display name, bio, password, privacy, blocked users, avatar upload via the same Cloudinary signed-upload flow as web.
+- Global Supabase Presence uses the website-compatible `voiceid:online-users` channel.
+- Calls: accepted contacts only; online users ring; offline users do not ring and a missed-call row is recorded. Existing calls INSERT webhook can notify registered FCM devices.
+- Call UI resolves the other user's display name/avatar and shows call state/timer/mute.
+- Optional TURN environment variables are supported for production NAT traversal. Without TURN, some mobile-network combinations can still remain at Connecting.
+
+### Additional GitHub Actions secrets
+`CLOUDINARY_CLOUD_NAME` must be the same Cloudinary cloud name used by the website.
+For production calling, optionally configure `TURN_URL`, `TURN_USERNAME`, and `TURN_CREDENTIAL`.
+
+### Background/killed-app push credential note
+The backend already contains `push_tokens` + `/api/send-call-push`. A native device can only receive killed-app FCM notifications after the Android Firebase app configuration (`google-services.json`) and token-registration client are supplied. No Firebase credentials are fabricated or committed by this project.

@@ -49,7 +49,11 @@ module.exports = {
       // Canonical production API origin. For VoiceID use https://www.voiceid.online
       // — the app calls its /api/media/* endpoints for upload/download,
       // same as the website does, since B2 credentials stay server-side.
-      apiBaseUrl: process.env.API_BASE_URL
+      apiBaseUrl: process.env.API_BASE_URL,
+      cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      turnUrl: process.env.TURN_URL,
+      turnUsername: process.env.TURN_USERNAME,
+      turnCredential: process.env.TURN_CREDENTIAL
     }
   }
 };
