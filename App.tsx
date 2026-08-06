@@ -5,16 +5,19 @@ import { AuthProvider } from './src/context/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import { VoiceCallProvider } from './src/context/VoiceCallContext';
 import CallOverlay from './src/components/CallOverlay';
+import { NotificationProvider } from './src/context/NotificationContext';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <VoiceCallProvider>
+        <NotificationProvider>
+          <VoiceCallProvider>
           <StatusBar style="light" />
           <RootNavigator />
           <CallOverlay />
         </VoiceCallProvider>
+          </NotificationProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

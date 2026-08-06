@@ -79,3 +79,11 @@ npx expo start
 - Uses `react-native-webrtc`; GitHub Actions/Expo prebuild creates the native Android integration.
 - Current backend uses STUN only, matching the website. A TURN service is still recommended later for reliable calls across restrictive/symmetric NAT networks.
 - Background/killed-app incoming-call wake-up via FCM is intentionally not enabled in this ZIP because the Android Firebase `google-services.json` is not present in the mobile project. Foreground incoming calls work through Supabase Realtime.
+
+## Phase 4.1 — Friends + clickable notifications
+- Search results now open a user profile instead of immediately creating a chat.
+- Profile supports send friend request, pending state, accept/decline, friend state and messaging.
+- Notifications tab uses the existing backend `notifications` table and realtime triggers.
+- Friend request notifications have inline Accept/Decline actions.
+- Message, friend request/accepted and missed-call notifications are clickable and route to the matching screen.
+- No client-side notification INSERT was added; existing SECURITY DEFINER backend triggers remain authoritative.

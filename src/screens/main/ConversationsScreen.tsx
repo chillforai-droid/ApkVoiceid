@@ -179,7 +179,7 @@ export default function ConversationsScreen({ navigation }: any) {
             data={searchResults}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => startChatWith(item.id, item.display_name)}>
+              <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => navigation.navigate('UserProfile', { profileId: item.id })}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>
                 </View>

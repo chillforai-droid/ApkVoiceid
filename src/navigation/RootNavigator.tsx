@@ -3,7 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, MessageCircle, Settings as SettingsIcon, Phone } from 'lucide-react-native';
+import { Home, MessageCircle, Settings as SettingsIcon, Phone, Bell } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -15,6 +15,9 @@ import ConversationsScreen from '../screens/main/ConversationsScreen';
 import ChatScreen from '../screens/main/ChatScreen';
 import SettingsScreen from '../screens/main/SettingsScreen';
 import CallHistoryScreen from '../screens/main/CallHistoryScreen';
+import NotificationsScreen from '../screens/main/NotificationsScreen';
+import UserProfileScreen from '../screens/main/UserProfileScreen';
+import { useNotifications } from '../context/NotificationContext';
 
 const AuthStackNav = createNativeStackNavigator();
 const MainStackNav = createNativeStackNavigator();
@@ -31,6 +34,7 @@ function AuthStack() {
 }
 
 function MainTabs() {
+  const { unreadCount } = useNotifications();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -56,6 +60,11 @@ function MainTabs() {
         options={{ tabBarIcon: ({ color, size }) => <Phone color={color} size={size} /> }}
       />
       <Tab.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ tabBarBadge: unreadCount || undefined, tabBarIcon: ({ color, size }) => <Bell color={color} size={size} /> }}
+      />
+      <Tab.Screen
         name="Settings"
         component={SettingsScreen}
         options={{ tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} /> }}
@@ -71,6 +80,7 @@ function MainStack() {
     <MainStackNav.Navigator screenOptions={{ headerShown: false }}>
       <MainStackNav.Screen name="Tabs" component={MainTabs} />
       <MainStackNav.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+      <MainStackNav.Screen name="UserProfile" component={UserProfileScreen} options={{ headerShown: false }} />
     </MainStackNav.Navigator>
   );
 }
