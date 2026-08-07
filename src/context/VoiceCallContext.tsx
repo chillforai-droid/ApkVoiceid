@@ -486,17 +486,31 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     return ch;
   }, [setupPeer, startCallerOffer, addDiagnostic]);
 
+  // Call-row state is persistent, unlike Supabase broadcast.  The receiver
+  // writes `accepted` only AFTER its signalling channel is SUBSCRIBED, so the
+  // caller can safely use that durable state as a recovery trigger if the
+  // ephemeral `receiver-ready` broadcast is lost in transit.
   const watch = useCallback((id: string) => {
     if (updates.current) supabase.removeChannel(updates.current);
     updates.current = supabase
       .channel(`call-row:${id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${id}` }, (p) => {
-        const s = (p.new as any).status;
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${id}` }, async (p) => {
+        const row: any = p.new;
+        const s = row.status;
+        addDiagnostic('CALL_ROW_STATUS', String(s));
         callLog('CALL_ROW_STATUS', { id, status: s });
+
+        if (s === 'accepted' && row.caller_id === user?.id) {
+          addDiagnostic('ACCEPTED_RECOVERY_TRIGGER', 'persistent DB status');
+          callLog('ACCEPTED_RECOVERY_TRIGGER', { id });
+          await startCallerOffer();
+          return;
+        }
+
         if (['ended', 'rejected', 'missed', 'cancelled', 'failed'].includes(s)) cleanup();
       })
       .subscribe();
-  }, [cleanup]);
+  }, [cleanup, user?.id, startCallerOffer, addDiagnostic]);
 
   // Persistent, singleton listener for incoming calls. Deliberately depends
   // only on [user, loadOther, watch] — both loadOther and watch are now
@@ -511,7 +525,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         const c: any = p.new;
         if (c.status === 'ringing' && stateRef.current === 'idle') {
           clearDiagnostics();
-          addDiagnostic('INCOMING_CALL_DETECTED', `callId=${c.id}`);
+          addDiagnostic('INCOMING_CALL_DETECTED', `callId=${c.id}; mode=pending-offer`);
           callLog('INCOMING_CALL_DETECTED', { callId: c.id });
           setActiveCall(c);
           loadOther(c);
@@ -568,12 +582,35 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       if (status === 'SUBSCRIBED') {
         callerSignalReady.current = true;
         if (pendingReceiverReady.current) {
-          // receiver-ready arrived before this channel finished
-          // subscribing — process the buffered signal now.
+          // receiver-ready arrived before this channel finished subscribing.
           pendingReceiverReady.current = false;
           callLog('RECEIVER_READY_DRAINED', { callId: call.id });
           await startCallerOffer();
         }
+
+        // Durable fallback: receiver-ready is a Realtime broadcast and can be
+        // missed even when send() returns `ok`. `calls.status=accepted` is
+        // persistent and is written by the receiver only after its signalling
+        // channel is subscribed. Poll briefly so even a missed postgres-change
+        // event cannot leave the caller stuck on Calling forever.
+        void (async () => {
+          for (let attempt = 1; attempt <= 20 && !offerStarted.current; attempt++) {
+            const { data, error } = await supabase.from('calls').select('status').eq('id', call.id).maybeSingle();
+            if (error) {
+              addDiagnostic('ACCEPTED_FALLBACK_CHECK_ERROR', `attempt=${attempt}; ${error.message}`);
+            } else {
+              addDiagnostic('ACCEPTED_FALLBACK_CHECK', `attempt=${attempt}; status=${data?.status || 'unknown'}`);
+              if (data?.status === 'accepted') {
+                addDiagnostic('ACCEPTED_FALLBACK_TRIGGER', `attempt=${attempt}`);
+                callLog('ACCEPTED_FALLBACK_TRIGGER', { callId: call.id, attempt });
+                await startCallerOffer();
+                break;
+              }
+              if (['ended', 'rejected', 'missed', 'cancelled', 'failed'].includes(String(data?.status))) break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        })();
       }
     });
 
