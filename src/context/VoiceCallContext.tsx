@@ -4,6 +4,7 @@ import { mediaDevices, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import InCallManager from 'react-native-incall-manager';
 import Constants from 'expo-constants';
+import { Audio } from 'expo-av';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { usePresence } from './PresenceContext';
@@ -135,6 +136,11 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   const callerSignalReady = useRef(false);
   const pendingReceiverReady = useRef(false);
   const offerStarted = useRef(false);
+  // Receiver ringtone is played with expo-av instead of InCallManager.startRingtone.
+  // startRingtone is a native call that was crashing the receiver process on some
+  // Android builds before the user could even press Accept. WebRTC/InCallManager
+  // is still used for in-call audio routing after the peer connection succeeds.
+  const ringtoneSound = useRef<Audio.Sound | null>(null);
 
   useEffect(() => { stateRef.current = callState; }, [callState]);
   useEffect(() => { activeRef.current = activeCall; }, [activeCall]);
@@ -148,11 +154,39 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const stopTones = () => {
-    try {
-      InCallManager.stopRingtone();
-      InCallManager.stopRingback();
-    } catch {}
+    // Do not call stopRingtone here: the receiver ringtone is owned by expo-av.
+    // Keeping native ringtone APIs out of the incoming-call path avoids the
+    // receiver-side native crash seen on the test devices.
+    const sound = ringtoneSound.current;
+    ringtoneSound.current = null;
+    if (sound) {
+      void sound.stopAsync().catch(() => undefined).finally(() => {
+        void sound.unloadAsync().catch(() => undefined);
+      });
+    }
+    try { InCallManager.stopRingback(); } catch {}
   };
+
+  const startIncomingRingtone = useCallback(async () => {
+    try {
+      stopTones();
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+      const { sound } = await Audio.Sound.createAsync(
+        require('../../assets/voiceid-ringtone.wav'),
+        { shouldPlay: true, isLooping: true, volume: 1.0 }
+      );
+      ringtoneSound.current = sound;
+      callLog('RINGTONE_STARTED_SAFE');
+    } catch (e: any) {
+      callLog('RINGTONE_START_FAILED_SAFE', { message: e?.message });
+      // Ringtone failure must never crash or block an incoming call.
+    }
+  }, []);
 
   const cleanup = useCallback(() => {
     callLog('CLEANUP', { callId: activeRef.current?.id });
@@ -416,18 +450,18 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
           modeRef.current = 'voice';
           setCallState('ringing-incoming');
           watch(c.id);
-          try {
-            InCallManager.startRingtone('_DEFAULT_', [], '', 30);
-          } catch (e: any) {
-            callLog('RINGTONE_START_FAILED', { message: e?.message });
-          }
+          // Receiver only. Use JS-managed bundled audio here; do not invoke
+          // InCallManager.startRingtone in the INSERT callback because that
+          // native call was the only native operation executed before Accept
+          // and could terminate the Android process on affected devices.
+          void startIncomingRingtone();
         }
       })
       .subscribe();
     return () => {
       if (incoming.current) supabase.removeChannel(incoming.current);
     };
-  }, [user, loadOther, watch]);
+  }, [user, loadOther, watch, startIncomingRingtone]);
 
   const startCall = useCallback(async (receiverId: string, mode: CallMode) => {
     if (!user || stateRef.current !== 'idle') return;

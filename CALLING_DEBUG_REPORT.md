@@ -445,3 +445,16 @@ the log sequence stops will point directly at it (per the A–O breakdown in
 - If those build secrets are absent, the APK temporarily falls back to the Metered testing credential supplied by the project owner.
 - Signalling protocol, Supabase channel/event names, ringtone behavior, and call UI were not changed in this patch.
 - After testing, remove/rotate the temporary credential and use GitHub Actions secrets for production.
+
+## Receiver crash isolation patch (2026-08-07)
+
+Observed on device: the receiver process closed immediately when an incoming call arrived, before Accept. At that point the TURN configuration has not yet created an `RTCPeerConnection`; the only native audio operation in the incoming INSERT handler was `InCallManager.startRingtone(...)`. The receiver ringtone path was therefore isolated from InCallManager.
+
+Changes:
+- Incoming ringtone now uses the already-installed `expo-av` package with bundled `assets/voiceid-ringtone.wav`.
+- Ringtone loops only on the receiver and is stopped/unloaded on Accept/Reject/Cancel/cleanup.
+- `InCallManager` remains responsible only for active-call audio routing after WebRTC reaches connected/completed.
+- Ringtone playback failure is caught and logged and cannot abort incoming-call state.
+- Metered TURN configuration and Supabase/WebRTC signaling were not changed in this crash-isolation patch.
+
+Why this isolates the crash: TURN/RTCPeerConnection setup occurs after Accept, whereas the reported crash occurred as the incoming call arrived. Removing the pre-Accept native ringtone invocation removes the only native operation on that path while preserving receiver ringtone via expo-av.
