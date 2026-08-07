@@ -105,6 +105,8 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   const [activeCall, setActiveCall] = useState<any>(null);
   const activeRef = useRef<any>(null);
   const [otherProfile, setOtherProfile] = useState<any>(null);
+  const handledOfferSdp = useRef<string | null>(null);
+  const handledAnswerSdp = useRef<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   // Bug fix: setupPeer previously closed over the `isSpeakerOn` STATE value,
@@ -374,6 +376,52 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     return p;
   }, [cleanup, getMedia, addDiagnostic]);
 
+  const handleAnswerPayload = useCallback(async (callId: string, payload: any, source: 'broadcast' | 'database') => {
+    try {
+      if (!payload?.sdp || handledAnswerSdp.current === payload.sdp) return;
+      handledAnswerSdp.current = payload.sdp;
+      addDiagnostic(source === 'database' ? 'ANSWER_RECOVERED' : 'ANSWER_RECEIVED', `sdpLength=${payload.sdp.length}`);
+      if (!pc.current) throw new Error('Caller peer connection missing while applying answer');
+      await pc.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
+      addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=caller');
+      for (const c of iceQueue.current) await pc.current.addIceCandidate(c);
+      iceQueue.current = [];
+    } catch (e: any) {
+      addDiagnostic('ANSWER_HANDLING_FAILED', `${source}; ${e?.message || e}`);
+      callLog('ANSWER_HANDLING_FAILED', { source, message: e?.message });
+    }
+  }, [addDiagnostic]);
+
+  const handleOfferPayload = useCallback(async (callId: string, payload: any, source: 'broadcast' | 'database') => {
+    try {
+      if (!payload?.sdp || handledOfferSdp.current === payload.sdp) return;
+      handledOfferSdp.current = payload.sdp;
+      addDiagnostic(source === 'database' ? 'OFFER_RECOVERED' : 'OFFER_RECEIVED', `sdpLength=${payload.sdp.length}`);
+      const isVideo = String(payload.sdp).includes('m=video');
+      const mode: CallMode = isVideo ? 'video' : 'voice';
+      setCallMode(mode); modeRef.current = mode;
+      const p = pc.current || (await setupPeer(mode));
+      await p.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: payload.sdp }));
+      addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=receiver');
+      for (const c of iceQueue.current) await p.addIceCandidate(c);
+      iceQueue.current = [];
+      const ans = await p.createAnswer();
+      await p.setLocalDescription(ans);
+      const desc = p.localDescription || ans;
+      addDiagnostic('ANSWER_CREATED', `sdpLength=${desc.sdp?.length || 0}`);
+      // Persist answer first, then broadcast it as the low-latency path.
+      const { error: answerPersistError } = await supabase.from('calls').update({ answer_sdp: desc.sdp }).eq('id', callId);
+      if (answerPersistError) throw new Error(`Answer persist failed: ${answerPersistError.message}`);
+      addDiagnostic('ANSWER_PERSISTED', `sdpLength=${desc.sdp?.length || 0}`);
+      const result = await signal.current?.send({ type: 'broadcast', event: 'answer', payload: { type: desc.type, sdp: desc.sdp } });
+      addDiagnostic('ANSWER_SENT', `result=${result}`);
+    } catch (e: any) {
+      handledOfferSdp.current = null; // allow DB retry after transient failure
+      addDiagnostic('RECEIVER_OFFER_HANDLING_FAILED', `${source}; ${e?.message || e}`);
+      callLog('RECEIVER_OFFER_HANDLING_FAILED', { source, message: e?.message });
+    }
+  }, [setupPeer, addDiagnostic]);
+
   const startCallerOffer = useCallback(async () => {
     if (offerStarted.current || !activeRef.current) return;
     if (!callerSignalReady.current) {
@@ -396,16 +444,37 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       addDiagnostic('OFFER_CREATED', `sdpLength=${offer.sdp?.length || 0}`);
       callLog('OFFER_CREATED', { sdpLength: offer.sdp?.length });
       const desc = p.localDescription || offer;
+      // Critical SDP is persisted on the call row BEFORE the best-effort
+      // realtime broadcast. Supabase Broadcast can return `ok` even when the
+      // peer never processes the event; the DB copy makes the handshake
+      // recoverable and prevents permanent Connecting... hangs.
+      const { error: offerPersistError } = await supabase.from('calls').update({ offer_sdp: desc.sdp }).eq('id', activeRef.current.id);
+      if (offerPersistError) throw new Error(`Offer persist failed: ${offerPersistError.message}`);
+      addDiagnostic('OFFER_PERSISTED', `sdpLength=${desc.sdp?.length || 0}`);
       const result = await signal.current?.send({ type: 'broadcast', event: 'offer', payload: { type: desc.type, sdp: desc.sdp } });
       addDiagnostic('OFFER_SENT', `result=${result}`);
       callLog('OFFER_SENT', { callId: activeRef.current?.id, result });
+      const currentCallId = activeRef.current.id;
+      void (async () => {
+        for (let attempt = 1; attempt <= 40 && !handledAnswerSdp.current; attempt++) {
+          const { data, error: readError } = await supabase.from('calls').select('answer_sdp,status').eq('id', currentCallId).maybeSingle();
+          if (!readError && data?.answer_sdp) {
+            addDiagnostic('ANSWER_DB_FALLBACK_TRIGGER', `attempt=${attempt}`);
+            await handleAnswerPayload(currentCallId, { type: 'answer', sdp: data.answer_sdp }, 'database');
+            break;
+          }
+          if (data && ['ended','rejected','missed','cancelled','failed'].includes(String(data.status))) break;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      })();
+
     } catch (e: any) {
       offerStarted.current = false;
       addDiagnostic('OFFER_FAILED', e?.message);
       callLog('OFFER_FAILED', { message: e?.message });
       Alert.alert('Call connection failed', e?.message || 'WebRTC offer failed');
     }
-  }, [setupPeer]);
+  }, [setupPeer, handleAnswerPayload, addDiagnostic]);
 
   const bindSignal = useCallback((callId: string, role: 'caller' | 'receiver') => {
     addDiagnostic('SIGNAL_CHANNEL_CREATING', `role=${role}; channel=voice-call:${callId}`);
@@ -439,52 +508,16 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         await startCallerOffer();
       });
       ch.on('broadcast', { event: 'answer' }, async ({ payload }: any) => {
-        try {
-          addDiagnostic('ANSWER_RECEIVED', `sdpLength=${payload?.sdp?.length || 0}`);
-          callLog('ANSWER_RECEIVED', { callId, sdpLength: payload?.sdp?.length });
-          await pc.current?.setRemoteDescription(new RTCSessionDescription(payload));
-          addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=caller');
-          callLog('REMOTE_DESCRIPTION_SET', { side: 'caller' });
-          for (const c of iceQueue.current) await pc.current?.addIceCandidate(c);
-          iceQueue.current = [];
-        } catch (e: any) {
-          addDiagnostic('ANSWER_HANDLING_FAILED', e?.message);
-          callLog('ANSWER_HANDLING_FAILED', { message: e?.message });
-        }
+        await handleAnswerPayload(callId, payload, 'broadcast');
       });
     } else {
       ch.on('broadcast', { event: 'offer' }, async ({ payload }: any) => {
-        try {
-          addDiagnostic('OFFER_RECEIVED', `sdpLength=${payload?.sdp?.length || 0}`);
-          callLog('OFFER_RECEIVED', { callId, sdpLength: payload?.sdp?.length });
-          const isVideo = String(payload?.sdp || '').includes('m=video');
-          const mode: CallMode = isVideo ? 'video' : 'voice';
-          setCallMode(mode);
-          modeRef.current = mode;
-          const p = pc.current || (await setupPeer(mode));
-          await p.setRemoteDescription(new RTCSessionDescription(payload));
-          addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=receiver');
-          callLog('REMOTE_DESCRIPTION_SET', { side: 'receiver' });
-          for (const c of iceQueue.current) await p.addIceCandidate(c);
-          iceQueue.current = [];
-          const ans = await p.createAnswer();
-          await p.setLocalDescription(ans);
-          addDiagnostic('ANSWER_CREATED', `sdpLength=${ans.sdp?.length || 0}`);
-          callLog('ANSWER_CREATED', { sdpLength: ans.sdp?.length });
-          const desc = p.localDescription || ans;
-          const result = await ch.send({ type: 'broadcast', event: 'answer', payload: { type: desc.type, sdp: desc.sdp } });
-          addDiagnostic('ANSWER_SENT', `result=${result}`);
-          callLog('ANSWER_SENT', { callId, result });
-        } catch (e: any) {
-          addDiagnostic('RECEIVER_OFFER_HANDLING_FAILED', e?.message);
-          callLog('RECEIVER_OFFER_HANDLING_FAILED', { message: e?.message });
-          Alert.alert('Call connection failed', e?.message || 'WebRTC answer failed');
-        }
+        await handleOfferPayload(callId, payload, 'broadcast');
       });
     }
 
     return ch;
-  }, [setupPeer, startCallerOffer, addDiagnostic]);
+  }, [startCallerOffer, handleOfferPayload, handleAnswerPayload, addDiagnostic]);
 
   // Call-row state is persistent, unlike Supabase broadcast.  The receiver
   // writes `accepted` only AFTER its signalling channel is SUBSCRIBED, so the
@@ -500,6 +533,15 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         addDiagnostic('CALL_ROW_STATUS', String(s));
         callLog('CALL_ROW_STATUS', { id, status: s });
 
+        // Durable SDP recovery path. These fields are populated by the APK
+        // before the matching realtime broadcast is sent.
+        if (row.receiver_id === user?.id && row.offer_sdp) {
+          await handleOfferPayload(id, { type: 'offer', sdp: row.offer_sdp }, 'database');
+        }
+        if (row.caller_id === user?.id && row.answer_sdp) {
+          await handleAnswerPayload(id, { type: 'answer', sdp: row.answer_sdp }, 'database');
+        }
+
         if (s === 'accepted' && row.caller_id === user?.id) {
           addDiagnostic('ACCEPTED_RECOVERY_TRIGGER', 'persistent DB status');
           callLog('ACCEPTED_RECOVERY_TRIGGER', { id });
@@ -510,7 +552,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         if (['ended', 'rejected', 'missed', 'cancelled', 'failed'].includes(s)) cleanup();
       })
       .subscribe();
-  }, [cleanup, user?.id, startCallerOffer, addDiagnostic]);
+  }, [cleanup, user?.id, startCallerOffer, handleOfferPayload, handleAnswerPayload, addDiagnostic]);
 
   // Persistent, singleton listener for incoming calls. Deliberately depends
   // only on [user, loadOther, watch] — both loadOther and watch are now
@@ -644,10 +686,25 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
           callLog('ACCEPT_DB_UPDATE_FAILED', { message: error.message });
           Alert.alert('कॉल स्वीकार नहीं हुई', error.message);
           cleanup();
+          return;
         }
+        // Poll the durable offer briefly as a second recovery path in case
+        // both Supabase broadcast and postgres_changes delivery are missed.
+        void (async () => {
+          for (let attempt = 1; attempt <= 40 && !handledOfferSdp.current; attempt++) {
+            const { data, error: readError } = await supabase.from('calls').select('offer_sdp,status').eq('id', call.id).maybeSingle();
+            if (!readError && data?.offer_sdp) {
+              addDiagnostic('OFFER_DB_FALLBACK_TRIGGER', `attempt=${attempt}`);
+              await handleOfferPayload(call.id, { type: 'offer', sdp: data.offer_sdp }, 'database');
+              break;
+            }
+            if (data && ['ended','rejected','missed','cancelled','failed'].includes(String(data.status))) break;
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        })();
       }
     });
-  }, [bindSignal, cleanup, addDiagnostic]);
+  }, [bindSignal, cleanup, handleOfferPayload, addDiagnostic]);
 
   const rejectCall = useCallback(async () => {
     if (activeRef.current) {
