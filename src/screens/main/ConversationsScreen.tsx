@@ -15,6 +15,7 @@ import { Search, X } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { usePresence } from '../../context/PresenceContext';
+import {useThemeMode} from '../../context/ThemeContext';
 
 // Ported from src/pages/ConversationsPage.tsx (list + realtime) and the
 // handleMessageAction flow in src/pages/UserProfilePage.tsx (starting a new
@@ -22,6 +23,7 @@ import { usePresence } from '../../context/PresenceContext';
 export default function ConversationsScreen({ navigation }: any) {
   const { user } = useAuth();
   const { isOnline } = usePresence();
+  const {colors}=useThemeMode();
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -139,10 +141,10 @@ export default function ConversationsScreen({ navigation }: any) {
 
     return (
       <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => openChat(item.id, other?.display_name, item.conversation_members?.find((m: any) => m.user_id !== user?.id)?.user_id)}>
-        <View style={styles.avatar}>{other?.avatar_url ? <Image source={{uri:other.avatar_url}} style={styles.avatarImage}/> : <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{backgroundColor:isOnline(item.conversation_members?.find((m:any)=>m.user_id!==user?.id)?.user_id)?'#22C55E':'#64748B'}]}/></View>
-        <View style={styles.rowContent}>
-          <Text style={styles.name}>{other?.display_name ?? 'यूज़र'}</Text>
-          <Text style={styles.preview} numberOfLines={1}>
+        <View style={styles.avatar}>{other?.avatar_url ? <Image source={{uri:other.avatar_url}} style={styles.avatarImage}/> : <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{borderColor:colors.background,backgroundColor:isOnline(item.conversation_members?.find((m:any)=>m.user_id!==user?.id)?.user_id)?'#22C55E':'#64748B'}]}/></View>
+        <View style={[styles.rowContent,{borderBottomColor:colors.border}]}>
+          <Text style={[styles.name,{color:colors.text}]}>{other?.display_name ?? 'यूज़र'}</Text>
+          <Text style={[styles.preview,{color:colors.textSecondary}]} numberOfLines={1}>
             {preview}
           </Text>
         </View>
@@ -151,19 +153,19 @@ export default function ConversationsScreen({ navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container,{backgroundColor:colors.background}]} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>चैट्स</Text>
+        <Text style={[styles.headerTitle,{color:colors.text}]}>चैट्स</Text>
       </View>
 
-      <View style={styles.searchBar}>
+      <View style={[styles.searchBar,{backgroundColor:colors.surfaceAlt}] }>
         <Search size={18} color="#64748B" />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput,{color:colors.inputText}]}
           value={query}
           onChangeText={setQuery}
           placeholder="नाम या यूज़रनेम से खोजें..."
-          placeholderTextColor="#64748B"
+          placeholderTextColor={colors.textSecondary}
         />
         {query.length > 0 && (
           <TouchableOpacity onPress={() => setQuery('')}>
@@ -181,16 +183,16 @@ export default function ConversationsScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.row} activeOpacity={0.6} onPress={() => navigation.navigate('UserProfile', { profileId: item.id })}>
-                <View style={styles.avatar}>{item.avatar_url?<Image source={{uri:item.avatar_url}} style={styles.avatarImage}/>:<Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{backgroundColor:isOnline(item.id)?'#22C55E':'#64748B'}]}/></View>
-                <View style={styles.rowContent}>
-                  <Text style={styles.name}>{item.display_name}</Text>
-                  <Text style={styles.preview}>@{item.username}</Text>
+                <View style={styles.avatar}>{item.avatar_url?<Image source={{uri:item.avatar_url}} style={styles.avatarImage}/>:<Text style={styles.avatarText}>{(item.display_name ?? '?').charAt(0).toUpperCase()}</Text>}<View style={[styles.dot,{borderColor:colors.background,backgroundColor:isOnline(item.id)?'#22C55E':'#64748B'}]}/></View>
+                <View style={[styles.rowContent,{borderBottomColor:colors.border}]}>
+                  <Text style={[styles.name,{color:colors.text}]}>{item.display_name}</Text>
+                  <Text style={[styles.preview,{color:colors.textSecondary}]}>@{item.username}</Text>
                 </View>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
               <View style={styles.empty}>
-                <Text style={styles.emptyText}>कोई यूज़र नहीं मिला</Text>
+                <Text style={[styles.emptyText,{color:colors.textSecondary}]}>कोई यूज़र नहीं मिला</Text>
               </View>
             }
           />
@@ -205,7 +207,7 @@ export default function ConversationsScreen({ navigation }: any) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>अभी कोई बातचीत नहीं — ऊपर सर्च करके शुरू करें</Text>
+              <Text style={[styles.emptyText,{color:colors.textSecondary}]}>अभी कोई बातचीत नहीं — ऊपर सर्च करके शुरू करें</Text>
             </View>
           }
         />

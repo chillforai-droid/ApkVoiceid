@@ -26,6 +26,7 @@ import { MessageBubble } from '../../components/MessageBubble';
 import { VoiceRecorderBar } from '../../components/VoiceRecorderBar';
 import { useVoiceCall } from '../../context/VoiceCallContext';
 import { usePresence } from '../../context/PresenceContext';
+import {useThemeMode} from '../../context/ThemeContext';
 
 // Ported from src/pages/ChatPage.tsx. Same messages table, same realtime
 // channel pattern, same /api/media/* upload flow — just React Native UI.
@@ -33,6 +34,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const { conversationId, name, otherUserId } = route.params ?? {};
   const { initiateCall, initiateVideoCall } = useVoiceCall();
   const { isOnline } = usePresence();
+  const {colors}=useThemeMode();
   const { user } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,13 +202,13 @@ export default function ChatScreen({ route, navigation }: any) {
   const renderItem = useCallback(({ item }: any) => <MessageBubble message={item} isOwn={item.sender_id === user?.id} onLongPress={()=>messageActions(item)} />,[user?.id,messageActions]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container,{backgroundColor:colors.background}]} edges={['top']}>
+      <View style={[styles.header,{borderBottomColor:colors.border}] }>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={22} color="#F1F5F9" />
         </TouchableOpacity>
         <View style={styles.avatar}>{otherProfile?.avatar_url?<Image source={{uri:otherProfile.avatar_url}} style={{width:'100%',height:'100%',borderRadius:18}}/>:<Text style={styles.avatarText}>{(name ?? '?').charAt(0).toUpperCase()}</Text>}</View>
-        <View style={{flex:1}}><Text style={styles.headerName} numberOfLines={1}>{name ?? 'चैट'}</Text><Text style={{color:typing?'#22C55E':isOnline(otherUserId)?'#22C55E':'#64748B',fontSize:11}}>{typing?'typing…':isOnline(otherUserId)?'Online':'Offline'}</Text></View>
+        <View style={{flex:1}}><Text style={[styles.headerName,{color:colors.text}]} numberOfLines={1}>{name ?? 'चैट'}</Text><Text style={{color:typing?'#22C55E':isOnline(otherUserId)?'#22C55E':'#64748B',fontSize:11}}>{typing?'typing…':isOnline(otherUserId)?'Online':'Offline'}</Text></View>
         <TouchableOpacity onPress={() => otherUserId && initiateVideoCall(otherUserId)} disabled={!otherUserId} style={styles.backBtn}>
           <Video size={22} color={otherUserId ? '#3B82F6' : '#475569'} />
         </TouchableOpacity>
@@ -232,7 +234,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
       {sending&&<View style={{paddingHorizontal:16,paddingVertical:6}}><Text style={{color:'#94A3B8',fontSize:12}}>Uploading… {Math.round(uploadProgress*100)}%</Text><View style={{height:4,backgroundColor:'#1E293B',borderRadius:2,marginTop:4}}><View style={{height:4,width:`${Math.max(3,uploadProgress*100)}%`,backgroundColor:'#22C55E',borderRadius:2}}/></View></View>}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar,{borderTopColor:colors.border,backgroundColor:colors.surface}]}>
           <VoiceRecorderBar onSend={sendVoice} onRecordingStateChange={setIsVoicePreview} />
           {!isVoicePreview && (
             <>
@@ -240,11 +242,11 @@ export default function ChatScreen({ route, navigation }: any) {
                 <ImageIcon size={20} color="#94A3B8" />
               </TouchableOpacity>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput,{backgroundColor:colors.surfaceAlt,color:colors.inputText}]}
                 value={text}
                 onChangeText={onTextChange}
                 placeholder="मैसेज लिखें..."
-                placeholderTextColor="#64748B"
+                placeholderTextColor={colors.textSecondary}
                 multiline
               />
               <TouchableOpacity

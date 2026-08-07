@@ -94,7 +94,7 @@ export default function RootNavigator() {
 
   if (loading) {
     return (
-      <View style={styles.loading}>
+      <View style={[styles.loading,{backgroundColor:scheme==='dark'?'#0B1220':'#F8FAFC'}]}>
         <ActivityIndicator size="large" color="#22C55E" />
       </View>
     );
