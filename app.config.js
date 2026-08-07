@@ -23,7 +23,11 @@ module.exports = {
         "CAMERA",
         "INTERNET",
         "POST_NOTIFICATIONS",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "MODIFY_AUDIO_SETTINGS",
+        "ACCESS_NETWORK_STATE",
+        "BLUETOOTH_CONNECT",
+        "WAKE_LOCK"
       ]
     },
     plugins: [
