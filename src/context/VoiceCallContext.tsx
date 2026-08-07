@@ -28,6 +28,8 @@ import { usePresence } from './PresenceContext';
 type CallState = 'idle' | 'ringing-outgoing' | 'ringing-incoming' | 'connecting' | 'connected';
 type CallMode = 'voice' | 'video';
 
+type CallDiagnostic = { at: string; step: string; detail?: string };
+
 type Ctx = {
   callState: CallState;
   callMode: CallMode;
@@ -47,6 +49,10 @@ type Ctx = {
   isCameraOn: boolean;
   toggleCamera: () => void;
   switchCamera: () => void;
+  diagnostics: CallDiagnostic[];
+  diagnosticStage: string;
+  diagnosticReport: () => string;
+  clearDiagnostics: () => void;
 };
 
 const C = createContext<Ctx>({} as Ctx);
@@ -116,6 +122,39 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CallDiagnostic[]>([]);
+  const diagnosticsRef = useRef<CallDiagnostic[]>([]);
+  const [diagnosticStage, setDiagnosticStage] = useState('IDLE');
+
+  const addDiagnostic = useCallback((step: string, detail?: string) => {
+    const item: CallDiagnostic = { at: new Date().toISOString(), step, detail };
+    const next = [...diagnosticsRef.current, item].slice(-80);
+    diagnosticsRef.current = next;
+    setDiagnostics(next);
+    setDiagnosticStage(step);
+    if (__DEV__) console.log('[VOICEID_DIAG]', step, detail || '');
+  }, []);
+
+  const clearDiagnostics = useCallback(() => {
+    diagnosticsRef.current = [];
+    setDiagnostics([]);
+    setDiagnosticStage('IDLE');
+  }, []);
+
+  const diagnosticReport = useCallback(() => {
+    const call = activeRef.current;
+    const header = [
+      'VoiceID Call Diagnostic',
+      `callId=${call?.id || 'none'}`,
+      `side=${call && user ? (call.caller_id === user.id ? 'caller' : 'receiver') : 'unknown'}`,
+      `callState=${stateRef.current}`,
+      `mode=${modeRef.current}`,
+      `stage=${diagnosticStage}`,
+      `turnConfigured=${iceServers.some((x:any)=>JSON.stringify(x.urls).includes('turn:') || JSON.stringify(x.urls).includes('turns:'))}`,
+      '---'
+    ];
+    return header.concat(diagnosticsRef.current.map(x => `${x.at} | ${x.step}${x.detail ? ` | ${x.detail}` : ''}`)).join('\n');
+  }, [diagnosticStage, user]);
 
   const pc = useRef<any>(null);
   const local = useRef<MediaStream | null>(null);
@@ -236,6 +275,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     local.current = s;
     setLocalStream(s);
     const audioTracks = s.getAudioTracks();
+    addDiagnostic('LOCAL_STREAM_CREATED', `audioTracks=${audioTracks.length}`);
     callLog('LOCAL_STREAM_CREATED', {
       audioTracks: audioTracks.length,
       enabled: audioTracks[0]?.enabled,
@@ -247,7 +287,9 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
   // setupPeer no longer depends on the isSpeakerOn STATE (see isSpeakerOnRef
   // above) — its identity is now stable across a speaker toggle mid-call.
   const setupPeer = useCallback(async (mode: CallMode) => {
+    addDiagnostic('PEER_CREATING', `mode=${mode}; iceServers=${iceServers.length}`);
     const p: any = new RTCPeerConnection({ iceServers });
+    addDiagnostic('PEER_CREATED');
     pc.current = p;
     const s = await getMedia(mode);
     s.getTracks().forEach((t: any) => p.addTrack(t, s));
@@ -255,6 +297,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     p.ontrack = (e: any) => {
       const stream = e.streams?.[0];
       const track = e.track;
+      addDiagnostic('REMOTE_TRACK_RECEIVED', `kind=${track?.kind}; enabled=${track?.enabled}`);
       callLog('REMOTE_TRACK_RECEIVED', { kind: track?.kind, enabled: track?.enabled, readyState: track?.readyState });
       if (stream) {
         callLog('REMOTE_STREAM_RECEIVED', { audioTracks: stream.getAudioTracks().length });
@@ -273,8 +316,10 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     p.onicecandidate = (e: any) => {
       if (e.candidate) {
         const payload = e.candidate.toJSON ? e.candidate.toJSON() : e.candidate;
-        callLog('ICE_LOCAL_CANDIDATE', { hasMid: !!payload.sdpMid });
-        signal.current?.send({ type: 'broadcast', event: 'ice-candidate', payload });
+        const candidateType = String(payload?.candidate || '').match(/ typ ([a-z]+)/)?.[1] || 'unknown';
+        addDiagnostic('ICE_LOCAL', `type=${candidateType}; mid=${payload.sdpMid ?? 'none'}`);
+        callLog('ICE_LOCAL_CANDIDATE', { hasMid: !!payload.sdpMid, candidateType });
+        signal.current?.send({ type: 'broadcast', event: 'ice-candidate', payload }).then((r:any)=>addDiagnostic('ICE_SENT', `result=${r}; type=${candidateType}`)).catch((err:any)=>addDiagnostic('ICE_SEND_FAILED', err?.message));
       } else {
         callLog('ICE_GATHERING_COMPLETE');
       }
@@ -282,6 +327,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
 
     const connected = () => {
       if (stateRef.current === 'connected') return;
+      addDiagnostic('MEDIA_CONNECTED', `ice=${p.iceConnectionState}; connection=${p.connectionState}`);
       callLog('MEDIA_CONNECTED', { iceState: p.iceConnectionState, connState: p.connectionState });
       stopTones();
       try {
@@ -294,9 +340,10 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       setCallState('connected');
     };
 
-    p.onsignalingstatechange = () => callLog('SIGNALING_STATE', { state: p.signalingState });
-    p.onicegatheringstatechange = () => callLog('ICE_GATHERING_STATE', { state: p.iceGatheringState });
+    p.onsignalingstatechange = () => { addDiagnostic('SIGNALING_STATE', String(p.signalingState)); callLog('SIGNALING_STATE', { state: p.signalingState }); };
+    p.onicegatheringstatechange = () => { addDiagnostic('ICE_GATHERING_STATE', String(p.iceGatheringState)); callLog('ICE_GATHERING_STATE', { state: p.iceGatheringState }); };
     p.oniceconnectionstatechange = () => {
+      addDiagnostic('ICE_CONNECTION_STATE', String(p.iceConnectionState));
       callLog('ICE_CONNECTION_STATE', { state: p.iceConnectionState });
       if (['connected', 'completed'].includes(p.iceConnectionState)) {
         connected();
@@ -304,7 +351,8 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         // This is the specific state that means signaling worked but no
         // media path could be established — almost always NAT traversal /
         // missing TURN. See CALLING_DEBUG_REPORT.md §M.
-        callLog('ICE_FAILED_LIKELY_NAT', { hadTurn: !!turnUrl });
+        addDiagnostic('ICE_FAILED', `TURN configured=true; state=${p.iceConnectionState}`);
+        callLog('ICE_FAILED_LIKELY_NAT', { hadTurn: true });
         Alert.alert(
           'कॉल कनेक्ट नहीं हो पाई',
           turnUrl
@@ -317,13 +365,14 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       }
     };
     p.onconnectionstatechange = () => {
+      addDiagnostic('CONNECTION_STATE', String(p.connectionState));
       callLog('CONNECTION_STATE', { state: p.connectionState });
       if (p.connectionState === 'connected') connected();
       else if (['failed', 'closed'].includes(p.connectionState)) cleanup();
     };
 
     return p;
-  }, [cleanup, getMedia]);
+  }, [cleanup, getMedia, addDiagnostic]);
 
   const startCallerOffer = useCallback(async () => {
     if (offerStarted.current || !activeRef.current) return;
@@ -344,55 +393,69 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       const p = pc.current || (await setupPeer(mode));
       const offer = await p.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === 'video' });
       await p.setLocalDescription(offer);
+      addDiagnostic('OFFER_CREATED', `sdpLength=${offer.sdp?.length || 0}`);
       callLog('OFFER_CREATED', { sdpLength: offer.sdp?.length });
       const desc = p.localDescription || offer;
       const result = await signal.current?.send({ type: 'broadcast', event: 'offer', payload: { type: desc.type, sdp: desc.sdp } });
+      addDiagnostic('OFFER_SENT', `result=${result}`);
       callLog('OFFER_SENT', { callId: activeRef.current?.id, result });
     } catch (e: any) {
       offerStarted.current = false;
+      addDiagnostic('OFFER_FAILED', e?.message);
       callLog('OFFER_FAILED', { message: e?.message });
       Alert.alert('Call connection failed', e?.message || 'WebRTC offer failed');
     }
   }, [setupPeer]);
 
   const bindSignal = useCallback((callId: string, role: 'caller' | 'receiver') => {
+    addDiagnostic('SIGNAL_CHANNEL_CREATING', `role=${role}; channel=voice-call:${callId}`);
     const ch = supabase.channel(`voice-call:${callId}`, { config: { broadcast: { ack: true, self: false } } });
     signal.current = ch;
 
     ch.on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
       try {
+        const remoteType = String(payload?.candidate || '').match(/ typ ([a-z]+)/)?.[1] || 'unknown';
+        addDiagnostic('ICE_REMOTE_RECEIVED', `type=${remoteType}`);
         const c = new RTCIceCandidate(payload);
         if (pc.current?.remoteDescription) {
+          addDiagnostic('ICE_REMOTE_ADDED', `type=${remoteType}`);
           callLog('ICE_ADDED');
           await pc.current.addIceCandidate(c);
         } else {
+          addDiagnostic('ICE_REMOTE_QUEUED', `type=${remoteType}`);
           callLog('ICE_QUEUED');
           iceQueue.current.push(c);
         }
       } catch (e: any) {
+        addDiagnostic('ICE_ADD_FAILED', e?.message);
         callLog('ICE_ADD_FAILED', { message: e?.message });
       }
     });
 
     if (role === 'caller') {
       ch.on('broadcast', { event: 'receiver-ready' }, async () => {
+        addDiagnostic('RECEIVER_READY_RECEIVED');
         callLog('RECEIVER_READY_RECEIVED', { callId });
         await startCallerOffer();
       });
       ch.on('broadcast', { event: 'answer' }, async ({ payload }: any) => {
         try {
+          addDiagnostic('ANSWER_RECEIVED', `sdpLength=${payload?.sdp?.length || 0}`);
           callLog('ANSWER_RECEIVED', { callId, sdpLength: payload?.sdp?.length });
           await pc.current?.setRemoteDescription(new RTCSessionDescription(payload));
+          addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=caller');
           callLog('REMOTE_DESCRIPTION_SET', { side: 'caller' });
           for (const c of iceQueue.current) await pc.current?.addIceCandidate(c);
           iceQueue.current = [];
         } catch (e: any) {
+          addDiagnostic('ANSWER_HANDLING_FAILED', e?.message);
           callLog('ANSWER_HANDLING_FAILED', { message: e?.message });
         }
       });
     } else {
       ch.on('broadcast', { event: 'offer' }, async ({ payload }: any) => {
         try {
+          addDiagnostic('OFFER_RECEIVED', `sdpLength=${payload?.sdp?.length || 0}`);
           callLog('OFFER_RECEIVED', { callId, sdpLength: payload?.sdp?.length });
           const isVideo = String(payload?.sdp || '').includes('m=video');
           const mode: CallMode = isVideo ? 'video' : 'voice';
@@ -400,16 +463,20 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
           modeRef.current = mode;
           const p = pc.current || (await setupPeer(mode));
           await p.setRemoteDescription(new RTCSessionDescription(payload));
+          addDiagnostic('REMOTE_DESCRIPTION_SET', 'side=receiver');
           callLog('REMOTE_DESCRIPTION_SET', { side: 'receiver' });
           for (const c of iceQueue.current) await p.addIceCandidate(c);
           iceQueue.current = [];
           const ans = await p.createAnswer();
           await p.setLocalDescription(ans);
+          addDiagnostic('ANSWER_CREATED', `sdpLength=${ans.sdp?.length || 0}`);
           callLog('ANSWER_CREATED', { sdpLength: ans.sdp?.length });
           const desc = p.localDescription || ans;
           const result = await ch.send({ type: 'broadcast', event: 'answer', payload: { type: desc.type, sdp: desc.sdp } });
+          addDiagnostic('ANSWER_SENT', `result=${result}`);
           callLog('ANSWER_SENT', { callId, result });
         } catch (e: any) {
+          addDiagnostic('RECEIVER_OFFER_HANDLING_FAILED', e?.message);
           callLog('RECEIVER_OFFER_HANDLING_FAILED', { message: e?.message });
           Alert.alert('Call connection failed', e?.message || 'WebRTC answer failed');
         }
@@ -417,7 +484,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     }
 
     return ch;
-  }, [setupPeer, startCallerOffer]);
+  }, [setupPeer, startCallerOffer, addDiagnostic]);
 
   const watch = useCallback((id: string) => {
     if (updates.current) supabase.removeChannel(updates.current);
@@ -443,6 +510,8 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'calls', filter: `receiver_id=eq.${user.id}` }, (p) => {
         const c: any = p.new;
         if (c.status === 'ringing' && stateRef.current === 'idle') {
+          clearDiagnostics();
+          addDiagnostic('INCOMING_CALL_DETECTED', `callId=${c.id}`);
           callLog('INCOMING_CALL_DETECTED', { callId: c.id });
           setActiveCall(c);
           loadOther(c);
@@ -461,7 +530,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (incoming.current) supabase.removeChannel(incoming.current);
     };
-  }, [user, loadOther, watch, startIncomingRingtone]);
+  }, [user, loadOther, watch, startIncomingRingtone, clearDiagnostics, addDiagnostic]);
 
   const startCall = useCallback(async (receiverId: string, mode: CallMode) => {
     if (!user || stateRef.current !== 'idle') return;
@@ -482,6 +551,8 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     const { data: call, error } = await supabase.from('calls').insert({ caller_id: user.id, receiver_id: receiverId, status: 'ringing' }).select().single();
     if (error || !call) return void Alert.alert('कॉल शुरू नहीं हुई', error?.message || 'Unknown error');
 
+    clearDiagnostics();
+    addDiagnostic('OUTGOING_CALL_CREATED', `callId=${call.id}; mode=${mode}`);
     callLog('OUTGOING_CALL_CREATED', { callId: call.id, mode });
     setCallMode(mode);
     modeRef.current = mode;
@@ -492,6 +563,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
 
     const ch = bindSignal(call.id, 'caller');
     ch.subscribe(async (status: string) => {
+      addDiagnostic('CALLER_CHANNEL_STATUS', status);
       callLog('CALLER_CHANNEL_STATUS', { callId: call.id, status });
       if (status === 'SUBSCRIBED') {
         callerSignalReady.current = true;
@@ -512,7 +584,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         cleanup();
       }
     }, 30000);
-  }, [user, isOnline, loadOther, watch, bindSignal, cleanup, startCallerOffer]);
+  }, [user, isOnline, loadOther, watch, bindSignal, cleanup, startCallerOffer, clearDiagnostics, addDiagnostic]);
 
   const initiateCall = useCallback((id: string) => startCall(id, 'voice'), [startCall]);
   const initiateVideoCall = useCallback((id: string) => startCall(id, 'video'), [startCall]);
@@ -524,9 +596,11 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
     setCallState('connecting');
     const ch = bindSignal(call.id, 'receiver');
     ch.subscribe(async (status: string) => {
+      addDiagnostic('RECEIVER_CHANNEL_STATUS', status);
       callLog('RECEIVER_CHANNEL_STATUS', { callId: call.id, status });
       if (status === 'SUBSCRIBED') {
         const readyResult = await ch.send({ type: 'broadcast', event: 'receiver-ready', payload: {} });
+        addDiagnostic('RECEIVER_READY_SENT', `result=${readyResult}`);
         callLog('RECEIVER_READY_SENT', { callId: call.id, result: readyResult });
         const { error } = await supabase.from('calls').update({ status: 'accepted', answered_at: new Date().toISOString() }).eq('id', call.id);
         if (error) {
@@ -536,7 +610,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         }
       }
     });
-  }, [bindSignal, cleanup]);
+  }, [bindSignal, cleanup, addDiagnostic]);
 
   const rejectCall = useCallback(async () => {
     if (activeRef.current) {
@@ -590,10 +664,12 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       callState, callMode, activeCall, otherProfile, localStream, remoteStream,
       initiateCall, initiateVideoCall, acceptCall, rejectCall, endCall,
       isMuted, toggleMute, isSpeakerOn, toggleSpeaker, isCameraOn, toggleCamera, switchCamera,
+      diagnostics, diagnosticStage, diagnosticReport, clearDiagnostics,
     }),
     [callState, callMode, activeCall, otherProfile, localStream, remoteStream,
       initiateCall, initiateVideoCall, acceptCall, rejectCall, endCall,
-      isMuted, toggleMute, isSpeakerOn, toggleSpeaker, isCameraOn, toggleCamera, switchCamera]
+      isMuted, toggleMute, isSpeakerOn, toggleSpeaker, isCameraOn, toggleCamera, switchCamera,
+      diagnostics, diagnosticStage, diagnosticReport, clearDiagnostics]
   );
 
   return <C.Provider value={value}>{children}</C.Provider>;
