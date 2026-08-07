@@ -13,7 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Send, Image as ImageIcon, Phone } from 'lucide-react-native';
+import { ArrowLeft, Send, Image as ImageIcon, Phone, Video } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -31,7 +31,7 @@ import { usePresence } from '../../context/PresenceContext';
 // channel pattern, same /api/media/* upload flow — just React Native UI.
 export default function ChatScreen({ route, navigation }: any) {
   const { conversationId, name, otherUserId } = route.params ?? {};
-  const { initiateCall } = useVoiceCall();
+  const { initiateCall, initiateVideoCall } = useVoiceCall();
   const { isOnline } = usePresence();
   const { user } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
@@ -207,6 +207,9 @@ export default function ChatScreen({ route, navigation }: any) {
         </TouchableOpacity>
         <View style={styles.avatar}>{otherProfile?.avatar_url?<Image source={{uri:otherProfile.avatar_url}} style={{width:'100%',height:'100%',borderRadius:18}}/>:<Text style={styles.avatarText}>{(name ?? '?').charAt(0).toUpperCase()}</Text>}</View>
         <View style={{flex:1}}><Text style={styles.headerName} numberOfLines={1}>{name ?? 'चैट'}</Text><Text style={{color:typing?'#22C55E':isOnline(otherUserId)?'#22C55E':'#64748B',fontSize:11}}>{typing?'typing…':isOnline(otherUserId)?'Online':'Offline'}</Text></View>
+        <TouchableOpacity onPress={() => otherUserId && initiateVideoCall(otherUserId)} disabled={!otherUserId} style={styles.backBtn}>
+          <Video size={22} color={otherUserId ? '#3B82F6' : '#475569'} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => otherUserId && initiateCall(otherUserId)} disabled={!otherUserId} style={styles.backBtn}>
           <Phone size={22} color={otherUserId ? '#22C55E' : '#475569'} />
         </TouchableOpacity>

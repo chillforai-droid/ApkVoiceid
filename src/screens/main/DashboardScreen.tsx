@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MessageCirclePlus, ChevronRight } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useThemeMode } from '../../context/ThemeContext';
 
 export default function DashboardScreen({ navigation }: any) {
   const { profile, user } = useAuth();
+  const { scheme } = useThemeMode(); const light=scheme==='light';
   const [recentChats, setRecentChats] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -23,7 +25,7 @@ export default function DashboardScreen({ navigation }: any) {
     }
     const { data } = await supabase
       .from('conversations')
-      .select(`id, last_message_at, conversation_members(user_id, profiles(display_name))`)
+      .select(`id, last_message_at, conversation_members(user_id, profiles(display_name, avatar_url))`)
       .in('id', convIds)
       .order('last_message_at', { ascending: false })
       .limit(4);
@@ -45,19 +47,19 @@ export default function DashboardScreen({ navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container,light&&{backgroundColor:'#F8FAFC'}]} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22C55E" />}
       >
-        <Text style={styles.greeting}>नमस्ते, {profile?.display_name ?? 'दोस्त'} 👋</Text>
+        <Text style={[styles.greeting,light&&{color:'#0F172A'}]}>नमस्ते, {profile?.display_name ?? 'दोस्त'} 👋</Text>
 
-        <TouchableOpacity style={styles.newChatCard} activeOpacity={0.8} onPress={() => navigation.navigate('Chats')}>
+        <TouchableOpacity style={[styles.newChatCard,light&&{backgroundColor:'#FFFFFF'}]} activeOpacity={0.8} onPress={() => navigation.navigate('Chats')}>
           <View style={styles.newChatIcon}>
             <MessageCirclePlus size={22} color="#22C55E" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.newChatTitle}>नई चैट शुरू करें</Text>
+            <Text style={[styles.newChatTitle,light&&{color:'#0F172A'}]}>नई चैट शुरू करें</Text>
             <Text style={styles.newChatSubtitle}>यूज़र सर्च करके बातचीत शुरू करें</Text>
           </View>
           <ChevronRight size={20} color="#64748B" />
@@ -80,10 +82,8 @@ export default function DashboardScreen({ navigation }: any) {
                 activeOpacity={0.7}
                 onPress={() => openChat(conv.id, other?.display_name)}
               >
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>
-                </View>
-                <Text style={styles.chatName}>{other?.display_name ?? 'यूज़र'}</Text>
+                <View style={styles.avatar}>{other?.avatar_url ? <Image source={{uri:other.avatar_url}} style={styles.avatarImage}/> : <Text style={styles.avatarText}>{(other?.display_name ?? '?').charAt(0).toUpperCase()}</Text>}</View>
+                <Text style={[styles.chatName,light&&{color:'#0F172A'}]}>{other?.display_name ?? 'यूज़र'}</Text>
               </TouchableOpacity>
             );
           })
@@ -129,6 +129,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  avatarImage:{width:'100%',height:'100%',borderRadius:21},
   avatarText: { color: '#fff', fontWeight: '700' },
   chatName: { color: '#F1F5F9', fontSize: 15, fontWeight: '600' },
 });

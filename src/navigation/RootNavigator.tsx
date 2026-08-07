@@ -36,12 +36,12 @@ function AuthStack() {
 }
 
 function MainTabs() {
-  const { unreadCount } = useNotifications();
+  const { unreadCount } = useNotifications(); const {scheme}=useThemeMode(); const light=scheme==='light';
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: '#0B1220', borderTopColor: '#1E293B' },
+        tabBarStyle: { backgroundColor: light?'#FFFFFF':'#0B1220', borderTopColor: light?'#E2E8F0':'#1E293B' },
         tabBarActiveTintColor: '#22C55E',
         tabBarInactiveTintColor: '#64748B',
       }}

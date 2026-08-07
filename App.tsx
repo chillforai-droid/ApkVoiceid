@@ -7,7 +7,8 @@ import { VoiceCallProvider } from './src/context/VoiceCallContext';
 import CallOverlay from './src/components/CallOverlay';
 import { NotificationProvider } from './src/context/NotificationContext';
 import { PresenceProvider } from './src/context/PresenceContext';
-import { ThemeProvider } from './src/context/ThemeContext';
+import { ThemeProvider, useThemeMode } from './src/context/ThemeContext';
+function ThemedStatusBar(){const {scheme}=useThemeMode();return <StatusBar style={scheme==='dark'?'light':'dark'} />}
 
 export default function App() {
   return (
@@ -16,7 +17,7 @@ export default function App() {
         <NotificationProvider>
           <PresenceProvider>
           <VoiceCallProvider>
-          <StatusBar style="light" />
+          <ThemedStatusBar />
           <RootNavigator />
           <CallOverlay />
         </VoiceCallProvider>
