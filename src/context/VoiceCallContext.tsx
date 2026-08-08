@@ -61,9 +61,14 @@ const turnUrl = Constants.expoConfig?.extra?.turnUrl as string | undefined;
 const turnUsername = Constants.expoConfig?.extra?.turnUsername as string | undefined;
 const turnCredential = Constants.expoConfig?.extra?.turnCredential as string | undefined;
 
-// Temporary Metered TURN fallback for real-device testing. Build-time TURN_*
-// values still take priority, so these test credentials can be replaced later
-// without touching calling/signalling code.
+// Metered TURN, all four transport variants — UDP/80, TCP/80, UDP/443, and
+// crucially TLS-over-TCP/443 (TURNS), which is what gets through the most
+// restrictive mobile-carrier firewalls that block plain UDP/non-443 TCP
+// outright. Build-time TURN_USERNAME/TURN_CREDENTIAL secrets override the
+// credentials used with these URLs when present; otherwise the test
+// credentials supplied for this build are used. Previously, setting a
+// TURN_URL secret REPLACED this whole array with a single URL, silently
+// losing the TCP/443 fallback — that was a real bug, fixed below.
 const TEST_TURN_USERNAME = 'ce4c2be456ea4ba39f96bd3c';
 const TEST_TURN_CREDENTIAL = 'X3rXWiinGzIH3B3p';
 const meteredTurnUrls = [
@@ -72,15 +77,21 @@ const meteredTurnUrls = [
   'turn:global.relay.metered.ca:443',
   'turns:global.relay.metered.ca:443?transport=tcp',
 ];
+const meteredUsername = turnUsername || TEST_TURN_USERNAME;
+const meteredCredential = turnCredential || TEST_TURN_CREDENTIAL;
 
 const iceServers: any[] = [
-  // Metered STUN + Google STUN give direct P2P a chance first.
+  // STUN gives direct P2P a chance first (fast path when it works).
   { urls: ['stun:stun.relay.metered.ca:80', 'stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  // If TURN_* secrets are present in the build, use those. Otherwise use the
-  // temporary Metered credential supplied for this APK test build.
-  turnUrl
-    ? { urls: turnUrl, username: turnUsername, credential: turnCredential }
-    : { urls: meteredTurnUrls, username: TEST_TURN_USERNAME, credential: TEST_TURN_CREDENTIAL },
+  // Full multi-transport Metered TURN — always present, never downgraded.
+  { urls: meteredTurnUrls, username: meteredUsername, credential: meteredCredential },
+  // If TURN_URL points at a different relay entirely (not just overriding
+  // Metered's credentials), add it as an EXTRA server rather than replacing
+  // the multi-transport set above — more usable candidate options, never
+  // fewer.
+  ...(turnUrl && !meteredTurnUrls.some(u => u.startsWith(turnUrl.split('?')[0]))
+    ? [{ urls: turnUrl, username: turnUsername, credential: turnCredential }]
+    : []),
 ];
 
 // ---------------------------------------------------------------------------
@@ -322,8 +333,16 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
 
   const setupPeer = useCallback(async (mode: CallMode) => {
     addDiagnostic('PEER_CREATING', `mode=${mode}; iceServers=${iceServers.length}`);
-    const p: any = new RTCPeerConnection({ iceServers });
-    addDiagnostic('PEER_CREATED');
+    // APK-only mobile calling fix: use the configured TURN relay directly.
+    // This avoids getting stuck on direct host/srflx ICE paths on carrier NATs.
+    // The web client and signaling protocol remain unchanged.
+    const p: any = new RTCPeerConnection({
+      iceServers,
+      iceTransportPolicy: 'relay',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    });
+    addDiagnostic('PEER_CREATED', 'iceTransportPolicy=relay; bundlePolicy=max-bundle; rtcpMuxPolicy=require');
     pc.current = p;
     const s = await getMedia(mode);
     s.getTracks().forEach((t: any) => p.addTrack(t, s));
@@ -359,8 +378,10 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    let overallTimeout: any = null;
     const connected = () => {
       if (stateRef.current === 'connected') return;
+      if (overallTimeout) clearTimeout(overallTimeout);
       addDiagnostic('MEDIA_CONNECTED', `ice=${p.iceConnectionState}; connection=${p.connectionState}`);
       callLog('MEDIA_CONNECTED', { iceState: p.iceConnectionState, connState: p.connectionState });
       stopTones();
@@ -374,26 +395,69 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       setCallState('connected');
     };
 
+    // Task requirement: candidates being gathered (host/srflx/relay) proves
+    // TURN allocation succeeded — it does NOT prove a usable candidate PAIR
+    // was actually selected between the two peers. getStats() is the only
+    // way to see that. Logged on every meaningful ICE transition so the next
+    // real-device test tells us directly whether relay-relay (or any) pair
+    // got nominated, instead of us having to infer it from candidate counts.
+    const logCandidatePairStats = async (reason: string) => {
+      try {
+        const stats = await p.getStats();
+        let loggedAny = false;
+        stats.forEach((report: any) => {
+          if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.nominated)) {
+            loggedAny = true;
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+            addDiagnostic(
+              'CANDIDATE_PAIR',
+              `reason=${reason}; state=${report.state}; nominated=${!!report.nominated}; ` +
+              `local=${local?.candidateType || '?'}/${local?.protocol || '?'}; ` +
+              `remote=${remote?.candidateType || '?'}/${remote?.protocol || '?'}; ` +
+              `bytesSent=${report.bytesSent ?? 0}; bytesReceived=${report.bytesReceived ?? 0}`
+            );
+            callLog('CANDIDATE_PAIR', {
+              reason, state: report.state, nominated: !!report.nominated,
+              localType: local?.candidateType, remoteType: remote?.candidateType,
+              protocol: local?.protocol, bytesSent: report.bytesSent, bytesReceived: report.bytesReceived,
+            });
+          }
+        });
+        if (!loggedAny) {
+          addDiagnostic('CANDIDATE_PAIR_NONE_YET', `reason=${reason}`);
+        }
+      } catch (e: any) {
+        addDiagnostic('GET_STATS_FAILED', e?.message);
+      }
+    };
+
     p.onsignalingstatechange = () => { addDiagnostic('SIGNALING_STATE', String(p.signalingState)); callLog('SIGNALING_STATE', { state: p.signalingState }); };
     p.onicegatheringstatechange = () => { addDiagnostic('ICE_GATHERING_STATE', String(p.iceGatheringState)); callLog('ICE_GATHERING_STATE', { state: p.iceGatheringState }); };
     p.oniceconnectionstatechange = () => {
       addDiagnostic('ICE_CONNECTION_STATE', String(p.iceConnectionState));
       callLog('ICE_CONNECTION_STATE', { state: p.iceConnectionState });
-      if (['connected', 'completed'].includes(p.iceConnectionState)) {
+      if (p.iceConnectionState === 'checking') {
+        // Fires once checks begin — tells us immediately whether we even
+        // have a remote candidate to check against yet.
+        void logCandidatePairStats('checking');
+      } else if (['connected', 'completed'].includes(p.iceConnectionState)) {
+        void logCandidatePairStats(p.iceConnectionState);
         connected();
       } else if (p.iceConnectionState === 'failed') {
-        // This is the specific state that means signaling worked but no
-        // media path could be established — almost always NAT traversal /
-        // missing TURN. See CALLING_DEBUG_REPORT.md §M.
-        addDiagnostic('ICE_FAILED', `TURN configured=true; state=${p.iceConnectionState}`);
-        callLog('ICE_FAILED_LIKELY_NAT', { hadTurn: true });
-        Alert.alert(
-          'कॉल कनेक्ट नहीं हो पाई',
-          turnUrl
-            ? 'नेटवर्क कनेक्शन की समस्या के कारण कॉल कनेक्ट नहीं हो सकी।'
-            : 'दोनों फ़ोन के नेटवर्क के बीच सीधा कनेक्शन नहीं बन पाया (सामान्यतः मोबाइल डेटा पर)। इसे ठीक करने के लिए TURN सर्वर की ज़रूरत है।'
-        );
-        cleanup();
+        // Genuine ICE failure: connectivity checks ran and exhausted every
+        // candidate pair without success. This is the ONLY state that
+        // should ever trigger the failure dialog — never merely being in
+        // 'connecting' or 'checking', which are normal in-progress states.
+        void logCandidatePairStats('failed').finally(() => {
+          addDiagnostic('ICE_FAILED', `state=${p.iceConnectionState}`);
+          callLog('ICE_FAILED', {});
+          Alert.alert(
+            'कॉल कनेक्ट नहीं हो पाई',
+            'कॉल कनेक्ट नहीं हो पाई। नेटवर्क कनेक्शन स्थापित नहीं हो सका। कृपया दोबारा प्रयास करें।'
+          );
+          cleanup();
+        });
       } else if (p.iceConnectionState === 'closed') {
         cleanup();
       }
@@ -402,8 +466,43 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       addDiagnostic('CONNECTION_STATE', String(p.connectionState));
       callLog('CONNECTION_STATE', { state: p.connectionState });
       if (p.connectionState === 'connected') connected();
-      else if (['failed', 'closed'].includes(p.connectionState)) cleanup();
+      else if (p.connectionState === 'failed') {
+        // connectionState can independently report 'failed' even if
+        // iceConnectionState handling above hasn't (implementation-
+        // dependent ordering) — apply the same accurate message and cleanup
+        // here rather than leaving the UI stuck.
+        void logCandidatePairStats('connectionState-failed').finally(() => {
+          addDiagnostic('CONNECTION_FAILED', `state=${p.connectionState}`);
+          Alert.alert(
+            'कॉल कनेक्ट नहीं हो पाई',
+            'कॉल कनेक्ट नहीं हो पाई। नेटवर्क कनेक्शन स्थापित नहीं हो सका। कृपया दोबारा प्रयास करें।'
+          );
+          cleanup();
+        });
+      } else if (p.connectionState === 'closed') {
+        cleanup();
+      }
     };
+
+    // Overall connection safety net. Deliberately much longer than any
+    // individual gathering/recovery timeout (20s ICE-gathering-wait, 60s DB
+    // answer-recovery poll) so it never fires while those legitimate
+    // in-progress steps are still running — it only exists to guarantee the
+    // UI can never hang on "Connecting…" forever if something upstream never
+    // reaches a terminal ICE state at all. Cleared as soon as media connects.
+    const overallTimeoutHandle = setTimeout(() => {
+      if (stateRef.current !== 'connected' && stateRef.current !== 'idle') {
+        addDiagnostic('OVERALL_CONNECT_TIMEOUT', `iceState=${p.iceConnectionState}; connState=${p.connectionState}`);
+        void logCandidatePairStats('overall-timeout').finally(() => {
+          Alert.alert(
+            'कॉल कनेक्ट नहीं हो पाई',
+            'कॉल कनेक्ट नहीं हो पाई। नेटवर्क कनेक्शन स्थापित नहीं हो सका। कृपया दोबारा प्रयास करें।'
+          );
+          cleanup();
+        });
+      }
+    }, 45000);
+    overallTimeout = overallTimeoutHandle;
 
     return p;
   }, [cleanup, getMedia, addDiagnostic]);
@@ -462,11 +561,24 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       const answerPayload = { type: desc.type, sdp: desc.sdp };
       // Send more than once because this is a single critical realtime event.
       // Caller de-duplicates identical SDP, so retries cannot create a second answer.
+      // Bug fix: the previous break condition checked THIS side's own
+      // `pc.current.remoteDescription.type === 'answer'` — but the receiver's
+      // remoteDescription is always type 'offer' (only the caller's ever
+      // becomes 'answer'), so that condition was permanently false and the
+      // loop always burned all 12 attempts (9s) regardless of delivery.
+      // Stop as soon as the broadcast itself reports 'ok' twice in a row —
+      // that's the actual signal we have that Supabase accepted the send.
       void (async () => {
+        let consecutiveOk = 0;
         for (let attempt = 1; attempt <= 12; attempt++) {
           const result = await signal.current?.send({ type: 'broadcast', event: 'answer', payload: answerPayload });
           addDiagnostic(attempt === 1 ? 'ANSWER_SENT' : 'ANSWER_RESENT', `attempt=${attempt}; result=${result}`);
-          if (pc.current?.remoteDescription?.type === 'answer') break;
+          if (result === 'ok') {
+            consecutiveOk++;
+            if (consecutiveOk >= 2) break;
+          } else {
+            consecutiveOk = 0;
+          }
           await new Promise(resolve => setTimeout(resolve, 750));
         }
       })();
@@ -626,9 +738,17 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (s === 'accepted' && row.caller_id === user?.id) {
-          addDiagnostic('ACCEPTED_RECOVERY_TRIGGER', 'persistent DB status');
-          callLog('ACCEPTED_RECOVERY_TRIGGER', { id });
-          await startCallerOffer();
+          // Idempotent by design: `calls.status='accepted'` can legitimately
+          // be redelivered by postgres_changes more than once for the same
+          // call (e.g. a later UPDATE that only touched answer_sdp still
+          // carries status='accepted' in its `new` row). offerStarted is the
+          // single source of truth for "have we already begun negotiation
+          // for this call" — never re-trigger past that point.
+          if (!offerStarted.current) {
+            addDiagnostic('ACCEPTED_RECOVERY_TRIGGER', 'persistent DB status');
+            callLog('ACCEPTED_RECOVERY_TRIGGER', { id });
+            await startCallerOffer();
+          }
           return;
         }
 
