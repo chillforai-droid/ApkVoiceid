@@ -410,11 +410,32 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       const desc = p.localDescription || ans;
       addDiagnostic('ANSWER_CREATED', `sdpLength=${desc.sdp?.length || 0}`);
       // Persist answer first, then broadcast it as the low-latency path.
-      const { error: answerPersistError } = await supabase.from('calls').update({ answer_sdp: desc.sdp }).eq('id', callId);
-      if (answerPersistError) throw new Error(`Answer persist failed: ${answerPersistError.message}`);
-      addDiagnostic('ANSWER_PERSISTED', `sdpLength=${desc.sdp?.length || 0}`);
-      const result = await signal.current?.send({ type: 'broadcast', event: 'answer', payload: { type: desc.type, sdp: desc.sdp } });
-      addDiagnostic('ANSWER_SENT', `result=${result}`);
+      const { data: persistedAnswer, error: answerPersistError } = await supabase
+        .from('calls')
+        .update({ answer_sdp: desc.sdp })
+        .eq('id', callId)
+        .select('id,answer_sdp')
+        .maybeSingle();
+      if (answerPersistError) {
+        addDiagnostic('ANSWER_PERSIST_FAILED', answerPersistError.message);
+        throw new Error(`Answer persist failed: ${answerPersistError.message}`);
+      }
+      if (!persistedAnswer?.answer_sdp || persistedAnswer.answer_sdp !== desc.sdp) {
+        addDiagnostic('ANSWER_PERSIST_FAILED', 'DB read-back did not contain the answer SDP');
+        throw new Error('Answer persist verification failed');
+      }
+      addDiagnostic('ANSWER_PERSISTED', `verified=true; sdpLength=${desc.sdp?.length || 0}`);
+      const answerPayload = { type: desc.type, sdp: desc.sdp };
+      // Send more than once because this is a single critical realtime event.
+      // Caller de-duplicates identical SDP, so retries cannot create a second answer.
+      void (async () => {
+        for (let attempt = 1; attempt <= 12; attempt++) {
+          const result = await signal.current?.send({ type: 'broadcast', event: 'answer', payload: answerPayload });
+          addDiagnostic(attempt === 1 ? 'ANSWER_SENT' : 'ANSWER_RESENT', `attempt=${attempt}; result=${result}`);
+          if (pc.current?.remoteDescription?.type === 'answer') break;
+          await new Promise(resolve => setTimeout(resolve, 750));
+        }
+      })();
     } catch (e: any) {
       handledOfferSdp.current = null; // allow DB retry after transient failure
       addDiagnostic('RECEIVER_OFFER_HANDLING_FAILED', `${source}; ${e?.message || e}`);
@@ -448,16 +469,42 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       // realtime broadcast. Supabase Broadcast can return `ok` even when the
       // peer never processes the event; the DB copy makes the handshake
       // recoverable and prevents permanent Connecting... hangs.
-      const { error: offerPersistError } = await supabase.from('calls').update({ offer_sdp: desc.sdp }).eq('id', activeRef.current.id);
-      if (offerPersistError) throw new Error(`Offer persist failed: ${offerPersistError.message}`);
-      addDiagnostic('OFFER_PERSISTED', `sdpLength=${desc.sdp?.length || 0}`);
-      const result = await signal.current?.send({ type: 'broadcast', event: 'offer', payload: { type: desc.type, sdp: desc.sdp } });
-      addDiagnostic('OFFER_SENT', `result=${result}`);
-      callLog('OFFER_SENT', { callId: activeRef.current?.id, result });
+      // Persist AND read the row back. A plain Supabase UPDATE may return no
+      // error even when RLS matched zero rows, so verify the stored SDP before
+      // relying on it as the recovery path.
+      const { data: persistedOffer, error: offerPersistError } = await supabase
+        .from('calls')
+        .update({ offer_sdp: desc.sdp })
+        .eq('id', activeRef.current.id)
+        .select('id,offer_sdp')
+        .maybeSingle();
+      if (offerPersistError) {
+        addDiagnostic('OFFER_PERSIST_FAILED', offerPersistError.message);
+        throw new Error(`Offer persist failed: ${offerPersistError.message}`);
+      }
+      if (!persistedOffer?.offer_sdp || persistedOffer.offer_sdp !== desc.sdp) {
+        addDiagnostic('OFFER_PERSIST_FAILED', 'DB read-back did not contain the offer SDP');
+        throw new Error('Offer persist verification failed');
+      }
+      addDiagnostic('OFFER_PERSISTED', `verified=true; sdpLength=${desc.sdp?.length || 0}`);
+
+      // Re-send the critical offer for a short window. Broadcast remains the
+      // fast path; the DB copy remains authoritative recovery. Re-sending the
+      // same SDP is safe because the receiver de-duplicates by SDP.
+      const offerPayload = { type: desc.type, sdp: desc.sdp };
+      void (async () => {
+        for (let attempt = 1; attempt <= 12 && !handledAnswerSdp.current; attempt++) {
+          const result = await signal.current?.send({ type: 'broadcast', event: 'offer', payload: offerPayload });
+          addDiagnostic(attempt === 1 ? 'OFFER_SENT' : 'OFFER_RESENT', `attempt=${attempt}; result=${result}`);
+          if (attempt === 1) callLog('OFFER_SENT', { callId: activeRef.current?.id, result });
+          await new Promise(resolve => setTimeout(resolve, 750));
+        }
+      })();
       const currentCallId = activeRef.current.id;
       void (async () => {
-        for (let attempt = 1; attempt <= 40 && !handledAnswerSdp.current; attempt++) {
+        for (let attempt = 1; attempt <= 120 && !handledAnswerSdp.current; attempt++) {
           const { data, error: readError } = await supabase.from('calls').select('answer_sdp,status').eq('id', currentCallId).maybeSingle();
+          if (readError) addDiagnostic('ANSWER_DB_READ_FAILED', `attempt=${attempt}; ${readError.message}`);
           if (!readError && data?.answer_sdp) {
             addDiagnostic('ANSWER_DB_FALLBACK_TRIGGER', `attempt=${attempt}`);
             await handleAnswerPayload(currentCallId, { type: 'answer', sdp: data.answer_sdp }, 'database');
@@ -691,8 +738,9 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
         // Poll the durable offer briefly as a second recovery path in case
         // both Supabase broadcast and postgres_changes delivery are missed.
         void (async () => {
-          for (let attempt = 1; attempt <= 40 && !handledOfferSdp.current; attempt++) {
+          for (let attempt = 1; attempt <= 120 && !handledOfferSdp.current; attempt++) {
             const { data, error: readError } = await supabase.from('calls').select('offer_sdp,status').eq('id', call.id).maybeSingle();
+            if (readError) addDiagnostic('OFFER_DB_READ_FAILED', `attempt=${attempt}; ${readError.message}`);
             if (!readError && data?.offer_sdp) {
               addDiagnostic('OFFER_DB_FALLBACK_TRIGGER', `attempt=${attempt}`);
               await handleOfferPayload(call.id, { type: 'offer', sdp: data.offer_sdp }, 'database');
