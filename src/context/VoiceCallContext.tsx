@@ -288,6 +288,38 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
 
   // setupPeer no longer depends on the isSpeakerOn STATE (see isSpeakerOnRef
   // above) — its identity is now stable across a speaker toggle mid-call.
+
+  // For critical SDP (offer/answer), wait until ICE gathering completes so
+  // the SDP itself contains the gathered host/srflx/relay candidates. This
+  // makes the handshake resilient even when Supabase trickle-ICE broadcasts
+  // are missed. Candidate broadcasts remain enabled as a fast-path fallback.
+  const waitForIceGatheringComplete = useCallback(async (peer: any, timeoutMs = 20000) => {
+    if (peer.iceGatheringState === 'complete') return;
+    addDiagnostic('ICE_GATHERING_WAIT', `state=${peer.iceGatheringState}; timeoutMs=${timeoutMs}`);
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        peer.onicegatheringstatechange = previousIceGatheringHandler;
+        resolve();
+      };
+      const previousIceGatheringHandler = peer.onicegatheringstatechange;
+      const timer = setTimeout(() => {
+        addDiagnostic('ICE_GATHERING_WAIT_TIMEOUT', `state=${peer.iceGatheringState}`);
+        finish();
+      }, timeoutMs);
+      peer.onicegatheringstatechange = () => {
+        try { previousIceGatheringHandler?.(); } catch {}
+        if (peer.iceGatheringState === 'complete') finish();
+      };
+    });
+    const sdp = peer.localDescription?.sdp || '';
+    const candidateCount = (sdp.match(/^a=candidate:/gm) || []).length;
+    addDiagnostic('ICE_SDP_FINALIZED', `state=${peer.iceGatheringState}; candidatesInSdp=${candidateCount}`);
+  }, [addDiagnostic]);
+
   const setupPeer = useCallback(async (mode: CallMode) => {
     addDiagnostic('PEER_CREATING', `mode=${mode}; iceServers=${iceServers.length}`);
     const p: any = new RTCPeerConnection({ iceServers });
@@ -407,8 +439,10 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       iceQueue.current = [];
       const ans = await p.createAnswer();
       await p.setLocalDescription(ans);
+      addDiagnostic('ANSWER_CREATED', `sdpLength=${ans.sdp?.length || 0}`);
+      await waitForIceGatheringComplete(p);
       const desc = p.localDescription || ans;
-      addDiagnostic('ANSWER_CREATED', `sdpLength=${desc.sdp?.length || 0}`);
+      addDiagnostic('ANSWER_SDP_READY', `sdpLength=${desc.sdp?.length || 0}`);
       // Persist answer first, then broadcast it as the low-latency path.
       const { data: persistedAnswer, error: answerPersistError } = await supabase
         .from('calls')
@@ -441,7 +475,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       addDiagnostic('RECEIVER_OFFER_HANDLING_FAILED', `${source}; ${e?.message || e}`);
       callLog('RECEIVER_OFFER_HANDLING_FAILED', { source, message: e?.message });
     }
-  }, [setupPeer, addDiagnostic]);
+  }, [setupPeer, addDiagnostic, waitForIceGatheringComplete]);
 
   const startCallerOffer = useCallback(async () => {
     if (offerStarted.current || !activeRef.current) return;
@@ -464,7 +498,9 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       await p.setLocalDescription(offer);
       addDiagnostic('OFFER_CREATED', `sdpLength=${offer.sdp?.length || 0}`);
       callLog('OFFER_CREATED', { sdpLength: offer.sdp?.length });
+      await waitForIceGatheringComplete(p);
       const desc = p.localDescription || offer;
+      addDiagnostic('OFFER_SDP_READY', `sdpLength=${desc.sdp?.length || 0}`);
       // Critical SDP is persisted on the call row BEFORE the best-effort
       // realtime broadcast. Supabase Broadcast can return `ok` even when the
       // peer never processes the event; the DB copy makes the handshake
@@ -521,7 +557,7 @@ export function VoiceCallProvider({ children }: { children: React.ReactNode }) {
       callLog('OFFER_FAILED', { message: e?.message });
       Alert.alert('Call connection failed', e?.message || 'WebRTC offer failed');
     }
-  }, [setupPeer, handleAnswerPayload, addDiagnostic]);
+  }, [setupPeer, handleAnswerPayload, addDiagnostic, waitForIceGatheringComplete]);
 
   const bindSignal = useCallback((callId: string, role: 'caller' | 'receiver') => {
     addDiagnostic('SIGNAL_CHANNEL_CREATING', `role=${role}; channel=voice-call:${callId}`);
