@@ -1,0 +1,22 @@
+# Copy this file to local.properties (which is gitignored) and fill in real values.
+# These map 1:1 onto the VoiceID web app's .env.example — see PROJECT_OVERVIEW.md / BACKEND_README.md.
+
+sdk.dir=/path/to/Android/sdk
+
+# Same Supabase project as the web client (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+
+# Base URL of the deployed VoiceID backend that serves /api/media/* (e.g. https://voiceid.online)
+API_BASE_URL=https://voiceid.online
+
+# OAuth Web Client ID from the SAME Google Cloud project Supabase Auth's Google provider uses
+# (Google Cloud Console -> APIs & Services -> Credentials -> OAuth 2.0 Client IDs -> Web application).
+# This is required for Google Sign-In via Credential Manager / One Tap on Android.
+GOOGLE_WEB_CLIENT_ID=YOUR_CLIENT_ID.apps.googleusercontent.com
+
+# Optional: release signing (omit to fall back to debug signing for CI builds)
+RELEASE_STORE_FILE=release.keystore
+RELEASE_STORE_PASSWORD=
+RELEASE_KEY_ALIAS=
+RELEASE_KEY_PASSWORD=

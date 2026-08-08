@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /auth/
+Disallow: /dashboard
+Disallow: /dashboard/
+Disallow: /login
+Disallow: /signup
+Disallow: /profile/edit
+Disallow: /api/
+Disallow: /*?q=
+
+Sitemap: https://voiceid.online/sitemap.xml

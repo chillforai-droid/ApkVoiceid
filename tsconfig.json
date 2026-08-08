@@ -1,6 +1,27 @@
 {
-  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["vite/client", "react", "react-dom"]
   }
 }

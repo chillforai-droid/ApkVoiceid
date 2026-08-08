@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import type { User, Session } from '@supabase/supabase-js';
+import { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
@@ -13,8 +13,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-// Ported directly from src/context/AuthContext.tsx in the web app.
-// Logic is identical — only the import paths changed.
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -22,13 +20,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = useCallback(async (userId: string, user: User) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
 
-    if (data && !data.avatar_url && user.user_metadata?.avatar_url) {
-      await supabase.from('profiles').update({ avatar_url: user.user_metadata.avatar_url }).eq('id', userId);
-      setProfile({ ...data, avatar_url: user.user_metadata.avatar_url });
+    // Sync Google avatar if missing
+    if (data && !data.avatar_url && user.user_metadata.avatar_url) {
+        await supabase.from('profiles').update({ avatar_url: user.user_metadata.avatar_url }).eq('id', userId);
+        setProfile({ ...data, avatar_url: user.user_metadata.avatar_url });
     } else {
-      setProfile(data);
+        setProfile(data);
     }
     setLoading(false);
   }, []);
@@ -44,9 +43,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       else setLoading(false);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!initialSessionLoaded) return;
       setSession(session);
       setUser(session?.user ?? null);
@@ -68,12 +65,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     await supabase.auth.signOut();
   }, []);
 
+  // Memoized so components consuming only e.g. `signOut` don't re-render
+  // every time an unrelated AuthProvider render occurs.
   const value = useMemo(
     () => ({ user, session, profile, loading, signOut, updateProfile }),
     [user, session, profile, loading, signOut, updateProfile]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => useContext(AuthContext);

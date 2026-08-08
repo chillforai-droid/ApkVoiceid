@@ -1,0 +1,156 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/media/upload",
+      "destination": "/api/upload"
+    },
+    {
+      "source": "/api/media/upload-auth",
+      "destination": "/api/upload-auth"
+    },
+    {
+      "source": "/api/media/download-auth",
+      "destination": "/api/download-auth"
+    },
+    {
+      "source": "/api/media/download",
+      "destination": "/api/download"
+    },
+    {
+      "source": "/api/media/ack",
+      "destination": "/api/ack"
+    },
+    {
+      "source": "/api/media/delete/:objectKey",
+      "destination": "/api/delete/:objectKey"
+    },
+    {
+      "source": "/terms-of-service",
+      "destination": "/terms-of-service/index.html"
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/privacy-policy/index.html"
+    },
+    {
+      "source": "/contact",
+      "destination": "/contact/index.html"
+    },
+    {
+      "source": "/careers",
+      "destination": "/careers/index.html"
+    },
+    {
+      "source": "/blog/how-to-protect-your-identity-while-chatting-online",
+      "destination": "/blog/how-to-protect-your-identity-while-chatting-online/index.html"
+    },
+    {
+      "source": "/blog/what-makes-a-messaging-platform-feel-real-time",
+      "destination": "/blog/what-makes-a-messaging-platform-feel-real-time/index.html"
+    },
+    {
+      "source": "/blog/why-browser-based-messaging-apps-are-gaining-ground",
+      "destination": "/blog/why-browser-based-messaging-apps-are-gaining-ground/index.html"
+    },
+    {
+      "source": "/blog/the-evolution-of-online-chat-from-irc-to-modern-messengers",
+      "destination": "/blog/the-evolution-of-online-chat-from-irc-to-modern-messengers/index.html"
+    },
+    {
+      "source": "/blog/are-voice-messages-more-secure-than-text",
+      "destination": "/blog/are-voice-messages-more-secure-than-text/index.html"
+    },
+    {
+      "source": "/blog/why-voice-messages-are-taking-over-text-based-chat",
+      "destination": "/blog/why-voice-messages-are-taking-over-text-based-chat/index.html"
+    },
+    {
+      "source": "/blog/anonymous-vs-private-understanding-the-difference",
+      "destination": "/blog/anonymous-vs-private-understanding-the-difference/index.html"
+    },
+    {
+      "source": "/blog/how-sim-swapping-attacks-work-and-how-to-avoid-them",
+      "destination": "/blog/how-sim-swapping-attacks-work-and-how-to-avoid-them/index.html"
+    },
+    {
+      "source": "/blog/the-future-of-decentralized-communication",
+      "destination": "/blog/the-future-of-decentralized-communication/index.html"
+    },
+    {
+      "source": "/blog/introducing-secure-end-to-end-encryption-on-voiceid",
+      "destination": "/blog/introducing-secure-end-to-end-encryption-on-voiceid/index.html"
+    },
+    {
+      "source": "/blog/why-your-phone-number-is-not-a-safe-identity",
+      "destination": "/blog/why-your-phone-number-is-not-a-safe-identity/index.html"
+    },
+    {
+      "source": "/blog/topic/real-time-messaging",
+      "destination": "/blog/topic/real-time-messaging/index.html"
+    },
+    {
+      "source": "/blog/topic/browser-messaging",
+      "destination": "/blog/topic/browser-messaging/index.html"
+    },
+    {
+      "source": "/blog/topic/online-chat",
+      "destination": "/blog/topic/online-chat/index.html"
+    },
+    {
+      "source": "/blog/topic/voice-messages",
+      "destination": "/blog/topic/voice-messages/index.html"
+    },
+    {
+      "source": "/blog/topic/private-communication",
+      "destination": "/blog/topic/private-communication/index.html"
+    },
+    {
+      "source": "/blog/topic/secure-messaging",
+      "destination": "/blog/topic/secure-messaging/index.html"
+    },
+    {
+      "source": "/blog",
+      "destination": "/blog/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy/index.html"
+    },
+    {
+      "source": "/help",
+      "destination": "/help/index.html"
+    },
+    {
+      "source": "/features",
+      "destination": "/features/index.html"
+    },
+    {
+      "source": "/video-calls",
+      "destination": "/video-calls/index.html"
+    },
+    {
+      "source": "/browser-chat",
+      "destination": "/browser-chat/index.html"
+    },
+    {
+      "source": "/online-chat",
+      "destination": "/online-chat/index.html"
+    },
+    {
+      "source": "/voice-messaging",
+      "destination": "/voice-messaging/index.html"
+    },
+    {
+      "source": "/private-chat",
+      "destination": "/private-chat/index.html"
+    },
+    {
+      "source": "/secure-messaging",
+      "destination": "/secure-messaging/index.html"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "VoiceID",
+  "description": "The world's first Voice Identity Platform. Replace your phone number with a permanent, secure VoiceID.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+:root {
+  /* Safe-area insets for notches / home indicators, with sane fallbacks */
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sat: env(safe-area-inset-top, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+html,
+body {
+  /* Prevent accidental horizontal scroll from any stray overflow */
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+body {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  background-color: #ffffff;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Utility classes for safe-area aware spacing, used by the app shell,
+   bottom nav, chat composer and full-screen call UI. */
+.pb-safe {
+  padding-bottom: calc(var(--sab));
+}
+.pt-safe {
+  padding-top: calc(var(--sat));
+}
+.h-safe-bottom {
+  height: var(--sab);
+}
+
